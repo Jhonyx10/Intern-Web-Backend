@@ -16,6 +16,7 @@ class Course extends Model
         'name',
         'required_hours',
         'dean_user_id',
+        'program_head_id',
         'is_active',
     ];
 
@@ -35,6 +36,14 @@ class Course extends Model
     public function dean(): BelongsTo
     {
         return $this->belongsTo(User::class, 'dean_user_id');
+    }
+
+    /**
+     * @return BelongsTo<User, $this>
+     */
+    public function programHead(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'program_head_id');
     }
 
     /**

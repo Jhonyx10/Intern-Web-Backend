@@ -25,9 +25,9 @@ class DeanPortalScope
         }
 
         if ($user->hasRole('program_head')) {
-            $user->loadMissing('courseMajorAsProgramHead.course');
+            $user->loadMissing(['courseAsProgramHead', 'courseMajorAsProgramHead.course', 'course']);
 
-            return $user->courseMajorAsProgramHead?->course;
+            return $user->courseAsProgramHead ?? $user->courseMajorAsProgramHead?->course ?? $user->course;
         }
 
         return null;

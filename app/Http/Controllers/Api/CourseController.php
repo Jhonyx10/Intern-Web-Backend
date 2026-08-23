@@ -12,7 +12,7 @@ class CourseController extends Controller
 {
     public function index()
     {
-        $query = Course::with(['dean', 'majors']);
+        $query = Course::with(['dean', 'programHead', 'majors']);
         $user = Auth::user();
 
         if ($user && DeanPortalScope::isPortalUser($user)) {
@@ -40,7 +40,7 @@ class CourseController extends Controller
             }
         }
 
-        return $course->load(['dean', 'majors']);
+        return $course->load(['dean', 'programHead', 'majors']);
     }
 
     public function store(Request $request)
@@ -50,12 +50,13 @@ class CourseController extends Controller
             'name' => 'required|string',
             'required_hours' => 'required|integer|min:0',
             'dean_user_id' => 'required|exists:users,id',
+            'program_head_id' => 'nullable|exists:users,id',
             'is_active' => 'boolean',
         ]);
 
         $course = Course::create($validated);
         
-        return response()->json($course->load(['dean', 'majors']), 201);
+        return response()->json($course->load(['dean', 'programHead', 'majors']), 201);
     }
 
     public function update(Request $request, Course $course)
@@ -65,12 +66,13 @@ class CourseController extends Controller
             'name' => 'sometimes|string',
             'required_hours' => 'sometimes|integer|min:0',
             'dean_user_id' => 'sometimes|exists:users,id',
+            'program_head_id' => 'nullable|exists:users,id',
             'is_active' => 'boolean',
         ]);
 
         $course->update($validated);
         
-        return $course->load(['dean', 'majors']);
+        return $course->load(['dean', 'programHead', 'majors']);
     }
 
     public function destroy(Course $course)

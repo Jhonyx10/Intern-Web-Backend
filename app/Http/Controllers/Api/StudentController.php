@@ -92,7 +92,16 @@ class StudentController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $student = Student::with(['section', 'companies'])->findOrFail($id);
+        $student = Student::with([
+            'section.course',
+            'section.courseMajor',
+            'companies.schedules.creator',
+            'ojtSchedule',
+            'timeLogs.taskPhotos',
+            'documents.documentType',
+            'documents.documentRequirement',
+        ])->findOrFail($id);
+
         return response()->json(['data' => $student]);
     }
 

@@ -66,6 +66,7 @@ class User extends Authenticatable
         $builder->where(function ($query) use ($courseId) {
             $query->where($this->getTable() . '.course_id', $courseId)
                   ->orWhereHas('courseAsDean', fn($q) => $q->where('id', $courseId))
+                  ->orWhereHas('courseAsProgramHead', fn($q) => $q->where('id', $courseId))
                   ->orWhereHas('coordinatedSections', fn($q) => $q->where('course_id', $courseId))
                   ->orWhereHas('courseMajorAsProgramHead', fn($q) => $q->where('course_id', $courseId));
         });
@@ -92,6 +93,14 @@ class User extends Authenticatable
     public function courseAsDean(): HasOne
     {
         return $this->hasOne(Course::class, 'dean_user_id');
+    }
+
+    /**
+     * @return HasOne<Course, $this>
+     */
+    public function courseAsProgramHead(): HasOne
+    {
+        return $this->hasOne(Course::class, 'program_head_id');
     }
 
     /**

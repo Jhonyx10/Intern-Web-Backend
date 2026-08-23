@@ -79,6 +79,17 @@ class Student extends Model
         return $this->belongsToMany(Company::class)->withPivot(['supervisor_id', 'course_id'])->withTimestamps();
     }
 
+    /**
+     * Alias relationship for singular company access.
+     *
+     * @return BelongsToMany<Company, $this>
+     */
+    public function company(): BelongsToMany
+    {
+        return $this->companies();
+    }
+
+
 
 
     /**

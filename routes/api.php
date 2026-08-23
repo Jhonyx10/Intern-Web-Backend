@@ -11,10 +11,16 @@ use App\Http\Controllers\Api\CoordinatorController;
 use App\Http\Controllers\Api\SYSectionController;
 use App\Http\Controllers\Api\StudentController;
 use App\Http\Controllers\Api\SupervisorController;
+use App\Http\Controllers\Api\MobileAuthController;
+use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\UserProfileController;
+use App\Http\Controllers\Api\SettingController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function (): void {
     Route::post('/login', [StaffAuthController::class, 'login']);
+    Route::post('/mobile/login', [MobileAuthController::class, 'login']);
+    Route::post('/face-login', [MobileAuthController::class, 'faceLogin']);
 
     Route::middleware('auth:sanctum')->group(function (): void {
         Route::post('/logout', [StaffAuthController::class, 'logout']);
@@ -23,10 +29,19 @@ Route::prefix('auth')->group(function (): void {
 });
 
 Route::middleware('auth:sanctum')->group(function (): void {
+    // Role Dashboards
+    Route::get('/dashboard/superadmin', [DashboardController::class, 'superAdmin']);
+    Route::get('/dashboard/dean', [DashboardController::class, 'dean']);
+    Route::get('/dashboard/program-head', [DashboardController::class, 'programHead']);
+    Route::get('/dashboard/coordinator', [DashboardController::class, 'coordinator']);
+    Route::get('/dashboard/supervisor', [DashboardController::class, 'supervisor']);
+
+    Route::post('/intern/face/enroll', [MobileAuthController::class, 'enrollFace']);
     Route::get('/companies', [CompanyController::class, 'index']);
     Route::post('/companies', [CompanyController::class, 'store']);
     Route::get('/companies/pending', [CompanyController::class, 'indexPending']);
     Route::post('/companies/{company}/approve', [CompanyController::class, 'approvePending']);
+    Route::post('/companies/{company}/reject', [CompanyController::class, 'rejectPending']);
     Route::post('/companies/{company}/assign-student', [CompanyController::class, 'assignStudent']);
     Route::post('/companies/{company}/supervisors', [CompanyController::class, 'storeSupervisor']);
     Route::get('/companies/{company}', [CompanyController::class, 'show']);
@@ -65,4 +80,10 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/supervisor/schedules', [SupervisorController::class, 'storeSchedule']);
     Route::put('/supervisor/schedules/{schedule}', [SupervisorController::class, 'updateSchedule']);
     Route::delete('/supervisor/schedules/{schedule}', [SupervisorController::class, 'destroySchedule']);
+
+    // User Profile & Department Settings
+    Route::put('/user/profile', [UserProfileController::class, 'updateProfile']);
+    Route::put('/user/password', [UserProfileController::class, 'updatePassword']);
+    Route::get('/settings', [SettingController::class, 'getSettings']);
+    Route::post('/dean/settings', [SettingController::class, 'updateDeanSettings']);
 });
