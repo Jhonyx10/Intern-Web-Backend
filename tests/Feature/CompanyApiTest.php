@@ -4,7 +4,7 @@ use App\Models\Company;
 use App\Models\CompanyRequest;
 use App\Models\Role;
 use App\Models\User;
-use Laravel\Passport\Passport;
+use Laravel\Sanctum\Sanctum;
 
 beforeEach(function (): void {
     $role = Role::query()->create([
@@ -43,9 +43,10 @@ it('lists companies for authenticated staff', function (): void {
         'geofence_radius_meters' => 150,
         'geofence_enabled' => true,
         'is_active' => true,
+        'is_approved' => true,
     ]);
 
-    Passport::actingAs($this->user);
+    Sanctum::actingAs($this->user);
 
     $this->getJson('/api/companies')
         ->assertSuccessful()
@@ -57,8 +58,37 @@ it('requires authentication to list companies', function (): void {
     $this->getJson('/api/companies')->assertUnauthorized();
 });
 
+it('lists an empty companies table for a dean without querying course_id', function (): void {
+    $deanRole = Role::query()->create([
+        'name' => 'dean',
+        'label' => 'Dean',
+    ]);
+
+    $dean = User::query()->create([
+        'name' => 'Dean User',
+        'email' => 'dean@example.com',
+        'password' => 'password',
+        'role_id' => $deanRole->id,
+        'is_active' => true,
+    ]);
+
+    $course = \App\Models\Course::query()->create([
+        'code' => 'BSCS',
+        'name' => 'Computer Science',
+        'required_hours' => 486,
+        'dean_user_id' => $dean->id,
+        'is_active' => true,
+    ]);
+
+    Sanctum::actingAs($dean->fresh(['role', 'courseAsDean']));
+
+    $this->getJson('/api/companies')
+        ->assertSuccessful()
+        ->assertJsonPath('data', []);
+});
+
 it('creates a company for authenticated staff', function (): void {
-    Passport::actingAs($this->user);
+    Sanctum::actingAs($this->user);
 
     $this->postJson('/api/companies', [
         'name' => 'New Mapbox Partner',
@@ -99,7 +129,7 @@ it('lists company requests for authenticated staff', function (): void {
         'status' => CompanyRequest::STATUS_PENDING,
     ]);
 
-    Passport::actingAs($this->user);
+    Sanctum::actingAs($this->user);
 
     $this->getJson('/api/company-requests')
         ->assertSuccessful()
@@ -107,7 +137,10 @@ it('lists company requests for authenticated staff', function (): void {
         ->assertJsonPath('data.0.user.email', 'intern@gmail.com');
 });
 
-it('approves a company request and attaches the student user', function (): void {
+/**
+ * Coordinator accept — company is created with is_approved = false.
+ */
+it('coordinator accepts a company request and creates a pending company', function (): void {
     $companyRequest = CompanyRequest::query()->create([
         'user_id' => $this->intern->id,
         'name' => 'Molugan Industrial Hub',
@@ -117,9 +150,9 @@ it('approves a company request and attaches the student user', function (): void
         'status' => CompanyRequest::STATUS_PENDING,
     ]);
 
-    Passport::actingAs($this->user);
+    Sanctum::actingAs($this->user);
 
-    $this->postJson("/api/company-requests/{$companyRequest->id}/approve", [
+    $this->postJson("/api/company-requests/{$companyRequest->id}/accept", [
         'geofence_radius_meters' => 180,
         'geofence_polygon' => [
             'type' => 'Polygon',
@@ -135,11 +168,13 @@ it('approves a company request and attaches the student user', function (): void
         ->assertSuccessful()
         ->assertJsonPath('data.company.name', 'Molugan Industrial Hub')
         ->assertJsonPath('data.company.geofence_polygon.type', 'Polygon')
-        ->assertJsonPath('data.company_request.status', CompanyRequest::STATUS_APPROVED);
+        ->assertJsonPath('data.company.is_approved', false)
+        ->assertJsonPath('data.company_request.status', CompanyRequest::STATUS_ACCEPTED);
 
     $this->assertDatabaseHas('companies', [
         'company_request_id' => $companyRequest->id,
         'name' => 'Molugan Industrial Hub',
+        'is_approved' => false, // pending superadmin approval
     ]);
 
     $this->assertDatabaseHas('company_user', [
@@ -147,7 +182,7 @@ it('approves a company request and attaches the student user', function (): void
     ]);
 });
 
-it('requires a geofence polygon to approve a company request', function (): void {
+it('requires a geofence polygon to accept a company request', function (): void {
     $companyRequest = CompanyRequest::query()->create([
         'user_id' => $this->intern->id,
         'name' => 'Missing Fence Co',
@@ -157,9 +192,115 @@ it('requires a geofence polygon to approve a company request', function (): void
         'status' => CompanyRequest::STATUS_PENDING,
     ]);
 
-    Passport::actingAs($this->user);
+    Sanctum::actingAs($this->user);
 
-    $this->postJson("/api/company-requests/{$companyRequest->id}/approve", [])
+    $this->postJson("/api/company-requests/{$companyRequest->id}/accept", [])
         ->assertUnprocessable()
         ->assertJsonValidationErrors(['geofence_polygon']);
+});
+
+/**
+ * Superadmin pending list.
+ */
+it('superadmin can list pending companies', function (): void {
+    Company::query()->create([
+        'name' => 'Pending Corp',
+        'latitude' => 8.5452,
+        'longitude' => 124.5398,
+        'is_active' => true,
+        'is_approved' => false,
+    ]);
+    // Approved company should NOT appear
+    Company::query()->create([
+        'name' => 'Approved Corp',
+        'latitude' => 8.5,
+        'longitude' => 124.5,
+        'is_active' => true,
+        'is_approved' => true,
+    ]);
+
+    Sanctum::actingAs($this->user);
+
+    $response = $this->getJson('/api/companies/pending')
+        ->assertSuccessful();
+
+    $data = $response->json('data');
+    expect($data)->toHaveCount(1);
+    expect($data[0]['name'])->toBe('Pending Corp');
+});
+
+/**
+ * Superadmin approve a pending company.
+ */
+it('superadmin can approve a pending company', function (): void {
+    $companyRequest = CompanyRequest::query()->create([
+        'user_id' => $this->intern->id,
+        'name' => 'Pending Corp',
+        'latitude' => 8.5452,
+        'longitude' => 124.5398,
+        'status' => CompanyRequest::STATUS_ACCEPTED,
+    ]);
+
+    $company = Company::query()->create([
+        'company_request_id' => $companyRequest->id,
+        'name' => 'Pending Corp',
+        'latitude' => 8.5452,
+        'longitude' => 124.5398,
+        'is_active' => true,
+        'is_approved' => false,
+    ]);
+
+    Sanctum::actingAs($this->user);
+
+    $this->postJson("/api/companies/{$company->id}/approve")
+        ->assertSuccessful()
+        ->assertJsonPath('data.is_approved', true);
+
+    $this->assertDatabaseHas('companies', [
+        'id' => $company->id,
+        'is_approved' => true,
+    ]);
+
+    $this->assertDatabaseHas('company_requests', [
+        'id' => $companyRequest->id,
+        'status' => CompanyRequest::STATUS_APPROVED,
+    ]);
+});
+
+/**
+ * Superadmin reject a pending company.
+ */
+it('superadmin can reject a pending company', function (): void {
+    $companyRequest = CompanyRequest::query()->create([
+        'user_id' => $this->intern->id,
+        'name' => 'Bad Corp',
+        'latitude' => 8.5452,
+        'longitude' => 124.5398,
+        'status' => CompanyRequest::STATUS_ACCEPTED,
+    ]);
+
+    $company = Company::query()->create([
+        'company_request_id' => $companyRequest->id,
+        'name' => 'Bad Corp',
+        'latitude' => 8.5452,
+        'longitude' => 124.5398,
+        'is_active' => true,
+        'is_approved' => false,
+    ]);
+
+    Sanctum::actingAs($this->user);
+
+    $this->postJson("/api/companies/{$company->id}/reject")
+        ->assertSuccessful()
+        ->assertJsonPath('data.is_active', false);
+
+    $this->assertDatabaseHas('companies', [
+        'id' => $company->id,
+        'is_active' => false,
+    ]);
+
+    $this->assertDatabaseHas('company_requests', [
+        'id' => $companyRequest->id,
+        'status' => CompanyRequest::STATUS_REJECTED,
+    ]);
 });

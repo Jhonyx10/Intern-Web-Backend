@@ -18,7 +18,7 @@ trait BelongsToCourse
 
         // 2. Auto-inject the course_id during model creation if none is provided
         static::creating(function ($model) {
-            if (Auth::check() && empty($model->course_id)) {
+            if (Auth::check() && empty($model->course_id) && $model->isFillable('course_id')) {
                 $user = Auth::user();
                 
                 $courseId = null;

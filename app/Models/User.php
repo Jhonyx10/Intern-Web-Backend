@@ -7,6 +7,7 @@ use App\Support\DeanPortalScope;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -14,12 +15,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Laravel\Passport\Contracts\OAuthenticatable;
-use Laravel\Passport\HasApiTokens;
+use Laravel\Sanctum\HasApiTokens;
 
-#[Fillable(['name', 'email', 'password', 'role_id', 'course_id', 'is_active', 'document_submission_alerts_seen_at'])]
+#[Fillable(['name', 'email', 'password', 'role_id', 'course_id', 'created_by', 'is_active', 'document_submission_alerts_seen_at'])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
-class User extends Authenticatable implements OAuthenticatable
+class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, Notifiable;
@@ -32,9 +32,43 @@ class User extends Authenticatable implements OAuthenticatable
         return $this->belongsTo(Role::class);
     }
 
+    /**
+     * @return BelongsTo<Course, $this>
+     */
+    public function course(): BelongsTo
+    {
+        return $this->belongsTo(Course::class);
+    }
+
+    /**
+     * @return BelongsTo<User, $this>
+     */
+    public function createdBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /**
+     * @return HasMany<User, $this>
+     */
+    public function createdUsers(): HasMany
+    {
+        return $this->hasMany(User::class, 'created_by');
+    }
+
     public function hasRole(string $role): bool
     {
         return $this->role?->name === $role;
+    }
+
+    public function applyCourseScope(Builder $builder, int $courseId): void
+    {
+        $builder->where(function ($query) use ($courseId) {
+            $query->where($this->getTable() . '.course_id', $courseId)
+                  ->orWhereHas('courseAsDean', fn($q) => $q->where('id', $courseId))
+                  ->orWhereHas('coordinatedSections', fn($q) => $q->where('course_id', $courseId))
+                  ->orWhereHas('courseMajorAsProgramHead', fn($q) => $q->where('course_id', $courseId));
+        });
     }
 
     public function isDeanPortalUser(): bool

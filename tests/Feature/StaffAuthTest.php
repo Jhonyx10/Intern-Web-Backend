@@ -2,19 +2,8 @@
 
 use App\Models\Role;
 use App\Models\User;
-use Illuminate\Support\Facades\Artisan;
-use Laravel\Passport\Passport;
-
-function ensurePassportPersonalClient(): void
-{
-    Artisan::call('passport:keys', ['--force' => true]);
-    Artisan::call('passport:client', [
-        '--personal' => true,
-        '--name' => 'Test SPA Client',
-        '--provider' => 'users',
-        '--no-interaction' => true,
-    ]);
-}
+use Illuminate\Support\Facades\Auth;
+use Laravel\Sanctum\Sanctum;
 
 beforeEach(function (): void {
     Role::query()->create([
@@ -29,8 +18,6 @@ beforeEach(function (): void {
 });
 
 it('logs in staff with email and password', function (): void {
-    ensurePassportPersonalClient();
-
     $role = Role::query()->where('name', 'super_admin')->firstOrFail();
 
     User::query()->create([
@@ -72,16 +59,51 @@ it('returns the authenticated user from me', function (): void {
         'is_active' => true,
     ]);
 
-    Passport::actingAs($user);
+    Sanctum::actingAs($user);
 
     $this->getJson('/api/auth/me')
         ->assertSuccessful()
         ->assertJsonPath('user.email', 'superadmin@gmail.com');
 });
 
-it('blocks intern accounts from staff login', function (): void {
-    ensurePassportPersonalClient();
+it('revokes the current token on logout', function (): void {
+    $role = Role::query()->where('name', 'super_admin')->firstOrFail();
 
+    User::query()->create([
+        'name' => 'Super Admin',
+        'email' => 'superadmin@gmail.com',
+        'password' => 'sadmin123',
+        'role_id' => $role->id,
+        'is_active' => true,
+    ]);
+
+    $login = $this->postJson('/api/auth/login', [
+        'email' => 'superadmin@gmail.com',
+        'password' => 'sadmin123',
+    ]);
+
+    $token = $login->json('access_token');
+    $tokenId = $login->json('user.id');
+
+    expect($token)->toBeString()->not->toBeEmpty();
+
+    $this->withToken($token)
+        ->postJson('/api/auth/logout')
+        ->assertNoContent();
+
+    $this->assertDatabaseMissing('personal_access_tokens', [
+        'tokenable_id' => $tokenId,
+        'tokenable_type' => User::class,
+    ]);
+
+    Auth::forgetGuards();
+
+    $this->withToken($token)
+        ->getJson('/api/auth/me')
+        ->assertUnauthorized();
+});
+
+it('blocks intern accounts from staff login', function (): void {
     $role = Role::query()->where('name', 'intern')->firstOrFail();
 
     User::query()->create([

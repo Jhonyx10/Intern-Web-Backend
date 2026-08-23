@@ -23,17 +23,28 @@ class CourseScope implements Scope
                 return;
             }
 
-            // Apply scope based on Dean or Program Head assignment
+            $courseId = null;
+
             if (DeanPortalScope::isPortalUser($user)) {
                 $course = DeanPortalScope::course($user);
-                
-                if ($course) {
-                    $builder->where($model->getTable() . '.course_id', $course->id);
+
+                if ($course === null) {
+                    $builder->whereRaw('1 = 0');
+
+                    return;
                 }
-            } 
-            // Fallback: If the user model itself has a direct course_id attribute
-            elseif (!empty($user->course_id)) {
-                $builder->where($model->getTable() . '.course_id', $user->course_id);
+
+                $courseId = $course->id;
+            } elseif (! empty($user->course_id)) {
+                $courseId = $user->course_id;
+            }
+
+            if ($courseId) {
+                if (method_exists($model, 'applyCourseScope')) {
+                    $model->applyCourseScope($builder, $courseId);
+                } else {
+                    $builder->where($model->getTable().'.course_id', $courseId);
+                }
             }
         }
     }

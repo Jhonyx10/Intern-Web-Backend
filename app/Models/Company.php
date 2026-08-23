@@ -6,17 +6,13 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use App\Models\Traits\BelongsToCourse;
 
 class Company extends Model
 {
-    use BelongsToCourse;
-
     /**
      * @var list<string>
      */
     protected $fillable = [
-        'course_id',
         'company_request_id',
         'name',
         'address',
@@ -29,6 +25,7 @@ class Company extends Model
         'contact_email',
         'contact_phone',
         'is_active',
+        'is_approved',
     ];
 
     /**
@@ -43,6 +40,7 @@ class Company extends Model
             'geofence_enabled' => 'boolean',
             'geofence_polygon' => 'array',
             'is_active' => 'boolean',
+            'is_approved' => 'boolean',
         ];
     }
 
@@ -88,5 +86,13 @@ class Company extends Model
     public function supervisors(): HasMany
     {
         return $this->hasMany(Supervisor::class);
+    }
+
+    /**
+     * @return HasMany<CompanySchedule, $this>
+     */
+    public function schedules(): HasMany
+    {
+        return $this->hasMany(CompanySchedule::class);
     }
 }

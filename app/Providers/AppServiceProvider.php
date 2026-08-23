@@ -7,7 +7,6 @@ use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
-use Laravel\Passport\Passport;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -24,20 +23,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        $this->configurePassport();
         $this->configureDefaults();
-    }
-
-    /**
-     * Configure Laravel Passport for API authentication.
-     */
-    protected function configurePassport(): void
-    {
-        Passport::tokensExpireIn(now()->addDays(15));
-        Passport::refreshTokensExpireIn(now()->addDays(30));
-        Passport::personalAccessTokensExpireIn(now()->addMonths(6));
-
-        Passport::enablePasswordGrant();
     }
 
     /**

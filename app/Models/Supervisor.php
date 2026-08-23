@@ -72,4 +72,12 @@ class Supervisor extends Model
     {
         return $this->hasMany(OjtEvaluation::class);
     }
+
+    /**
+     * @return HasMany<CompanySchedule, $this>
+     */
+    public function schedules(): HasMany
+    {
+        return $this->hasMany(CompanySchedule::class, 'supervisor_id');
+    }
 }

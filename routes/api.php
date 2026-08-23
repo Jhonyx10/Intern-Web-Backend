@@ -10,20 +10,25 @@ use App\Http\Controllers\Api\RolesController;
 use App\Http\Controllers\Api\CoordinatorController;
 use App\Http\Controllers\Api\SYSectionController;
 use App\Http\Controllers\Api\StudentController;
+use App\Http\Controllers\Api\SupervisorController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function (): void {
     Route::post('/login', [StaffAuthController::class, 'login']);
 
-    Route::middleware('auth:api')->group(function (): void {
+    Route::middleware('auth:sanctum')->group(function (): void {
         Route::post('/logout', [StaffAuthController::class, 'logout']);
         Route::get('/me', [StaffAuthController::class, 'me']);
     });
 });
 
-Route::middleware('auth:api')->group(function (): void {
+Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/companies', [CompanyController::class, 'index']);
     Route::post('/companies', [CompanyController::class, 'store']);
+    Route::get('/companies/pending', [CompanyController::class, 'indexPending']);
+    Route::post('/companies/{company}/approve', [CompanyController::class, 'approvePending']);
+    Route::post('/companies/{company}/assign-student', [CompanyController::class, 'assignStudent']);
+    Route::post('/companies/{company}/supervisors', [CompanyController::class, 'storeSupervisor']);
     Route::get('/companies/{company}', [CompanyController::class, 'show']);
     Route::apiResource('users',UserController::class);
     Route::apiResource('courses',CourseController::class);
@@ -33,7 +38,7 @@ Route::middleware('auth:api')->group(function (): void {
     Route::apiResource('students', StudentController::class);
 
     Route::get('/company-requests', [CompanyRequestController::class, 'index']);
-    Route::post('/company-requests/{companyRequest}/approve', [CompanyRequestController::class, 'approve']);
+    Route::post('/company-requests/{companyRequest}/accept', [CompanyRequestController::class, 'coordinatorAccept']);
 
     // Import students
     Route::post('/students/import', [StudentController::class, 'import']);
@@ -51,4 +56,13 @@ Route::middleware('auth:api')->group(function (): void {
     Route::post('/school-years/{schoolYear}/sections', [SYSectionController::class, 'storeSection']);
     Route::put('/school-years/{schoolYear}/sections/{section}', [SYSectionController::class, 'updateSection']);
     Route::delete('/school-years/{schoolYear}/sections/{section}', [SYSectionController::class, 'destroySection']);
+
+    // Supervisor portal
+    Route::get('/supervisor/profile', [SupervisorController::class, 'profile']);
+    Route::get('/supervisor/interns', [SupervisorController::class, 'interns']);
+    Route::get('/supervisor/attendance', [SupervisorController::class, 'attendance']);
+    Route::get('/supervisor/schedules', [SupervisorController::class, 'indexSchedules']);
+    Route::post('/supervisor/schedules', [SupervisorController::class, 'storeSchedule']);
+    Route::put('/supervisor/schedules/{schedule}', [SupervisorController::class, 'updateSchedule']);
+    Route::delete('/supervisor/schedules/{schedule}', [SupervisorController::class, 'destroySchedule']);
 });

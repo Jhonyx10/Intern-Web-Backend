@@ -10,6 +10,8 @@ class CompanyRequest extends Model
 {
     public const STATUS_PENDING = 'pending';
 
+    public const STATUS_ACCEPTED = 'accepted';
+
     public const STATUS_APPROVED = 'approved';
 
     public const STATUS_REJECTED = 'rejected';

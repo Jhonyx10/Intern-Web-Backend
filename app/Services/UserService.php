@@ -2,9 +2,11 @@
 
 namespace App\Services;
 
-use App\Models\User;
 use App\Models\Role;
-use Illuminate\Support\Str;
+use App\Models\User;
+use App\Support\DeanPortalScope;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\ValidationException;
 
 class UserService
 {
@@ -17,40 +19,54 @@ class UserService
     public function getAllCoordinators()
     {
         $role = Role::where('name', 'Coordinator')->orWhere('name', 'coordinator')->first();
-        if (!$role) return [];
+        if (! $role) {
+            return [];
+        }
 
-        return User::where('role_id', $role->id)
-            ->with(['coordinatedSections.course'])
-            ->get()
-            ->map(function ($c) {
-                $internsAssigned = 0;
-                foreach($c->coordinatedSections as $sec) {
-                    $internsAssigned += $sec->students()->count();
-                }
+        $query = User::query()
+            ->where('role_id', $role->id)
+            ->with(['course', 'coordinatedSections.course']);
 
-                $department = 'N/A';
-                if ($c->courseAsDean) {
-                    $department = $c->courseAsDean->name;
-                } else if ($c->activeCoordinatorSection() && $c->activeCoordinatorSection()->course) {
-                    $department = $c->activeCoordinatorSection()->course->name;
-                } else if ($c->coordinatedSections->first() && $c->coordinatedSections->first()->course) {
-                    $department = $c->coordinatedSections->first()->course->name;
-                }
+        $actor = Auth::user();
 
-                return [
-                    'id' => (string) $c->id,
-                    'name' => $c->name,
-                    'email' => $c->email,
-                    'department' => $department,
-                    'internsAssigned' => $internsAssigned,
-                    'status' => $c->is_active ? 'active' : 'invited',
-                ];
-            });
+        if ($actor?->hasRole('dean')) {
+            $query->where('created_by', $actor->id);
+        } elseif ($actor && ! $actor->hasRole('super_admin')) {
+            $query->withGlobalScope('course', new \App\Models\Scopes\CourseScope());
+        }
+
+        return $query->get()->map(function ($c) {
+            $internsAssigned = 0;
+            foreach ($c->coordinatedSections as $sec) {
+                $internsAssigned += $sec->students()->count();
+            }
+
+            $department = $c->course?->name
+                ?? $c->activeCoordinatorSection()?->course?->name
+                ?? $c->coordinatedSections->first()?->course?->name
+                ?? 'N/A';
+
+            return [
+                'id' => (string) $c->id,
+                'name' => $c->name,
+                'email' => $c->email,
+                'department' => $department,
+                'internsAssigned' => $internsAssigned,
+                'status' => $c->is_active ? 'active' : 'invited',
+            ];
+        });
     }
 
     public function getCoordinatorById($id)
     {
-        return User::findOrFail($id);
+        $query = User::query();
+        $actor = Auth::user();
+
+        if ($actor?->hasRole('dean')) {
+            $query->where('created_by', $actor->id);
+        }
+
+        return $query->findOrFail($id);
     }
 
     public function createCoordinator($data)
@@ -59,20 +75,38 @@ class UserService
         if ($role) {
             $data['role_id'] = $role->id;
         }
-        $data['password'] = bcrypt(Str::random(10));
+
+        $actor = Auth::user();
+
+        if ($actor) {
+            $data['created_by'] = $actor->id;
+
+            if ($actor->hasRole('dean')) {
+                $course = DeanPortalScope::course($actor);
+
+                if ($course === null) {
+                    throw ValidationException::withMessages([
+                        'course_id' => ['You must be assigned to a department before creating coordinators.'],
+                    ]);
+                }
+
+                $data['course_id'] = $course->id;
+            }
+        }
+
         return User::create($data);
     }
 
     public function updateCoordinator($id, $data)
     {
-        $user = User::findOrFail($id);
+        $user = $this->getCoordinatorById($id);
         $user->update($data);
         return $user;
     }
 
     public function deleteCoordinator($id)
     {
-        $user = User::findOrFail($id);
+        $user = $this->getCoordinatorById($id);
         $user->delete();
         return ['message' => 'Deleted successfully'];
     }

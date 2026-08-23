@@ -2,19 +2,23 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use App\Models\Traits\BelongsToCourse;
+
 class Student extends Model
 {
+    use BelongsToCourse;
+
     /**
      * @var list<string>
      */
     protected $fillable = [
         'user_id',
-        'course_id',
         'student_number',
         'first_name',
         'middle_name',
@@ -24,6 +28,13 @@ class Student extends Model
         'last_document_alerts_seen_at',
         'last_document_review_alerts_seen_at',
     ];
+
+    public function applyCourseScope(Builder $builder, int $courseId): void
+    {
+        $builder->whereHas('section', function ($q) use ($courseId) {
+            $q->where('course_id', $courseId);
+        });
+    }
 
     /**
      * @return array<string, string>

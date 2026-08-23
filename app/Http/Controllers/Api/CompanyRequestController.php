@@ -20,7 +20,7 @@ class CompanyRequestController extends Controller
         $requests = CompanyRequest::query()
             ->with([
                 'user:id,name,email',
-                'company:id,company_request_id,name,geofence_enabled,geofence_polygon',
+                'company:id,company_request_id,name,geofence_enabled,geofence_polygon,is_approved',
             ])
             ->when(
                 $status !== '',
@@ -35,8 +35,18 @@ class CompanyRequestController extends Controller
         ]);
     }
 
-    public function approve(Request $request, CompanyRequest $companyRequest): JsonResponse
+    /**
+     * Coordinator accepts a student's company request.
+     * Creates the company record with is_approved = false (pending superadmin approval).
+     */
+    public function coordinatorAccept(Request $request, CompanyRequest $companyRequest): JsonResponse
     {
+        if ($companyRequest->status === CompanyRequest::STATUS_ACCEPTED) {
+            throw ValidationException::withMessages([
+                'company_request' => ['This company request was already accepted by a coordinator.'],
+            ]);
+        }
+
         if ($companyRequest->status === CompanyRequest::STATUS_APPROVED) {
             throw ValidationException::withMessages([
                 'company_request' => ['This company request was already approved.'],
@@ -57,7 +67,7 @@ class CompanyRequestController extends Controller
 
         $company = DB::transaction(function () use ($companyRequest, $validated) {
             $companyRequest->update([
-                'status' => CompanyRequest::STATUS_APPROVED,
+                'status' => CompanyRequest::STATUS_ACCEPTED,
             ]);
 
             $company = Company::query()->updateOrCreate(
@@ -74,6 +84,7 @@ class CompanyRequestController extends Controller
                     'contact_email' => $validated['contact_email'] ?? null,
                     'contact_phone' => $validated['contact_phone'] ?? null,
                     'is_active' => true,
+                    'is_approved' => false, // superadmin must approve
                 ],
             );
 
@@ -102,10 +113,11 @@ class CompanyRequestController extends Controller
                     'contact_person',
                     'contact_email',
                     'contact_phone',
+                    'is_approved',
                 ]),
                 'company_request' => $this->serialize($companyRequest->fresh([
                     'user:id,name,email',
-                    'company:id,company_request_id,name,geofence_enabled,geofence_polygon',
+                    'company:id,company_request_id,name,geofence_enabled,geofence_polygon,is_approved',
                 ])),
             ],
         ]);
@@ -132,6 +144,7 @@ class CompanyRequestController extends Controller
                 ]
                 : null,
             'company_id' => $companyRequest->company?->id,
+            'company_is_approved' => $companyRequest->company?->is_approved,
             'geofence_polygon' => $companyRequest->company?->geofence_enabled
                 ? $companyRequest->company->geofence_polygon
                 : null,

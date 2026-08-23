@@ -3,19 +3,43 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-
 use App\Models\Course;
+use App\Support\DeanPortalScope;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class CourseController extends Controller
 {
     public function index()
     {
-        return Course::with(['dean', 'majors'])->get();
+        $query = Course::with(['dean', 'majors']);
+        $user = Auth::user();
+
+        if ($user && DeanPortalScope::isPortalUser($user)) {
+            $course = DeanPortalScope::course($user);
+
+            if ($course === null) {
+                return [];
+            }
+
+            $query->whereKey($course->id);
+        }
+
+        return $query->get();
     }
 
     public function show(Course $course)
     {
+        $user = Auth::user();
+
+        if ($user && DeanPortalScope::isPortalUser($user)) {
+            $scoped = DeanPortalScope::course($user);
+
+            if ($scoped === null || (int) $scoped->id !== (int) $course->id) {
+                abort(404);
+            }
+        }
+
         return $course->load(['dean', 'majors']);
     }
 

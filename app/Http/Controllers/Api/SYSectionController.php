@@ -3,9 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use App\Models\Section;
 use App\Models\SchoolYear;
+use App\Models\Section;
+use App\Models\User;
+use App\Support\DeanPortalScope;
+use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class SYSectionController extends Controller
 {
@@ -37,6 +40,8 @@ class SYSectionController extends Controller
 
     public function storeSchoolYear(Request $request)
     {
+        $this->ensureDeanHasCourse($request->user());
+
         $validated = $request->validate([
             'name'       => ['required', 'string', 'max:100'],
             'start_date' => ['nullable', 'date'],
@@ -100,6 +105,8 @@ class SYSectionController extends Controller
 
     public function storeSection(Request $request, SchoolYear $schoolYear)
     {
+        $this->ensureDeanHasCourse($request->user());
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:100'],
             'code' => ['nullable', 'string', 'max:50'],
@@ -107,6 +114,35 @@ class SYSectionController extends Controller
             'course_major_id'     => ['nullable', 'integer', 'exists:course_majors,id'],
             'coordinator_user_id' => ['nullable', 'integer', 'exists:users,id'],
         ]);
+
+        $user = $request->user();
+        $deanCourse = $user && DeanPortalScope::isPortalUser($user)
+            ? DeanPortalScope::course($user)
+            : null;
+
+        if ($deanCourse !== null) {
+            $validated['course_id'] = $deanCourse->id;
+
+            if (
+                $schoolYear->course_id !== null
+                && (int) $schoolYear->course_id !== (int) $deanCourse->id
+            ) {
+                abort(404);
+            }
+        }
+
+        if (! empty($validated['coordinator_user_id']) && $user?->hasRole('dean')) {
+            $ownsCoordinator = User::query()
+                ->whereKey($validated['coordinator_user_id'])
+                ->where('created_by', $user->id)
+                ->exists();
+
+            if (! $ownsCoordinator) {
+                throw ValidationException::withMessages([
+                    'coordinator_user_id' => ['You can only assign coordinators you created.'],
+                ]);
+            }
+        }
 
         $validated['school_year_id'] = $schoolYear->id;
 
@@ -142,6 +178,19 @@ class SYSectionController extends Controller
 
     public function sectionDetails($id)
     {
-        return Section::with(['students', 'course', 'courseMajor', 'coordinator', 'schoolYear'])->findOrFail($id);
+        return Section::with(['students.companies', 'course', 'courseMajor', 'coordinator', 'schoolYear'])->findOrFail($id);
+    }
+
+    private function ensureDeanHasCourse(?User $user): void
+    {
+        if ($user === null || ! $user->hasRole('dean')) {
+            return;
+        }
+
+        if (DeanPortalScope::course($user) === null) {
+            throw ValidationException::withMessages([
+                'course_id' => ['You must be assigned to a department before managing years and sections.'],
+            ]);
+        }
     }
 }

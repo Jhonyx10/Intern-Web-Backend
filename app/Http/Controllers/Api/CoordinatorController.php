@@ -30,7 +30,11 @@ class CoordinatorController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'unique:users,email'],
             'password' => ['required', 'string', 'min:8'],
-            'course_id' => ['required', 'integer', Rule::exists(Course::class, 'id')],
+            'course_id' => [
+                $request->user()?->hasRole('dean') ? 'nullable' : 'required',
+                'integer',
+                Rule::exists(Course::class, 'id'),
+            ],
         ]);
 
         $coordinatorRole = Role::where('name', 'coordinator')->firstOrFail();
