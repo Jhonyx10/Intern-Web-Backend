@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Building;
 use App\Models\Company;
 use App\Models\CompanyRequest;
 use App\Models\Student;
@@ -54,15 +55,26 @@ class CompanyRequestController extends Controller
         }
 
         $validated = $request->validate([
-            'geofence_radius_meters' => ['nullable', 'integer', 'min:10', 'max:5000'],
-            'geofence_enabled' => ['sometimes', 'boolean'],
-            'geofence_polygon' => ['required', 'array'],
-            'geofence_polygon.type' => ['required', 'in:Polygon'],
-            'geofence_polygon.coordinates' => ['required', 'array', 'min:1'],
-            'geofence_polygon.coordinates.0' => ['required', 'array', 'min:4'],
-            'contact_person' => ['nullable', 'string', 'max:255'],
-            'contact_email' => ['nullable', 'email', 'max:255'],
-            'contact_phone' => ['nullable', 'string', 'max:50'],
+            'geofence_radius_meters'                         => ['nullable', 'integer', 'min:10', 'max:5000'],
+            'geofence_enabled'                               => ['sometimes', 'boolean'],
+            'geofence_polygon'                               => ['required', 'array'],
+            'geofence_polygon.type'                          => ['required', 'in:Polygon'],
+            'geofence_polygon.coordinates'                   => ['required', 'array', 'min:1'],
+            'geofence_polygon.coordinates.0'                 => ['required', 'array', 'min:4'],
+            'contact_person'                                 => ['nullable', 'string', 'max:255'],
+            'contact_email'                                  => ['nullable', 'email', 'max:255'],
+            'contact_phone'                                  => ['nullable', 'string', 'max:50'],
+            // Optional buildings
+            'buildings'                                      => ['nullable', 'array'],
+            'buildings.*.name'                               => ['required', 'string', 'max:255'],
+            'buildings.*.code'                               => ['required', 'string', 'max:50'],
+            'buildings.*.latitude'                           => ['nullable', 'numeric', 'between:-90,90'],
+            'buildings.*.longitude'                          => ['nullable', 'numeric', 'between:-180,180'],
+            'buildings.*.geofence_radius_meters'             => ['nullable', 'integer', 'min:5', 'max:5000'],
+            'buildings.*.geofence_enabled'                   => ['nullable', 'boolean'],
+            'buildings.*.geofence_polygon'                   => ['nullable', 'array'],
+            'buildings.*.geofence_polygon.type'              => ['required_with:buildings.*.geofence_polygon', 'in:Polygon'],
+            'buildings.*.geofence_polygon.coordinates'       => ['required_with:buildings.*.geofence_polygon', 'array', 'min:1'],
         ]);
 
         $company = DB::transaction(function () use ($companyRequest, $validated) {
@@ -95,26 +107,36 @@ class CompanyRequestController extends Controller
                 $company->students()->syncWithoutDetaching([$student->id]);
             }
 
-            return $company->load('companyRequest');
+            // Bulk-create buildings if provided
+            if (!empty($validated['buildings'])) {
+                // Remove any UI-only keys that are not on the Building model
+                $buildingRows = array_map(fn (array $b) => array_diff_key($b, ['tempId' => true]), $validated['buildings']);
+                $company->buildings()->createMany($buildingRows);
+            }
+
+            return $company->load(['companyRequest', 'buildings']);
         });
 
         return response()->json([
             'data' => [
-                'company' => $company->only([
-                    'id',
-                    'company_request_id',
-                    'name',
-                    'address',
-                    'latitude',
-                    'longitude',
-                    'geofence_radius_meters',
-                    'geofence_enabled',
-                    'geofence_polygon',
-                    'contact_person',
-                    'contact_email',
-                    'contact_phone',
-                    'is_approved',
-                ]),
+                'company' => array_merge(
+                    $company->only([
+                        'id',
+                        'company_request_id',
+                        'name',
+                        'address',
+                        'latitude',
+                        'longitude',
+                        'geofence_radius_meters',
+                        'geofence_enabled',
+                        'geofence_polygon',
+                        'contact_person',
+                        'contact_email',
+                        'contact_phone',
+                        'is_approved',
+                    ]),
+                    ['buildings' => $company->buildings],
+                ),
                 'company_request' => $this->serialize($companyRequest->fresh([
                     'user:id,name,email',
                     'company:id,company_request_id,name,geofence_enabled,geofence_polygon,is_approved',

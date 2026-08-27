@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\BuildingController;
 use App\Http\Controllers\Api\CompanyController;
 use App\Http\Controllers\Api\CompanyRequestController;
 use App\Http\Controllers\Api\StaffAuthController;
@@ -45,6 +46,12 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/companies/{company}/assign-student', [CompanyController::class, 'assignStudent']);
     Route::post('/companies/{company}/supervisors', [CompanyController::class, 'storeSupervisor']);
     Route::get('/companies/{company}', [CompanyController::class, 'show']);
+    // Buildings (nested under company)
+    Route::get('/companies/{company}/buildings', [BuildingController::class, 'index']);
+    Route::post('/companies/{company}/buildings', [BuildingController::class, 'store']);
+    Route::get('/companies/{company}/buildings/{building}', [BuildingController::class, 'show']);
+    Route::put('/companies/{company}/buildings/{building}', [BuildingController::class, 'update']);
+    Route::delete('/companies/{company}/buildings/{building}', [BuildingController::class, 'destroy']);
     Route::apiResource('users',UserController::class);
     Route::apiResource('courses',CourseController::class);
     Route::apiResource('majors', CourseMajorController::class);

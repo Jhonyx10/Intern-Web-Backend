@@ -304,3 +304,68 @@ it('superadmin can reject a pending company', function (): void {
         'status' => CompanyRequest::STATUS_REJECTED,
     ]);
 });
+
+/**
+ * Coordinator accept with buildings — buildings are created in the database.
+ */
+it('coordinator accept creates buildings when provided', function (): void {
+    $companyRequest = CompanyRequest::query()->create([
+        'user_id' => $this->intern->id,
+        'name' => 'Tech Campus',
+        'address' => 'El Salvador City',
+        'latitude' => 8.5452,
+        'longitude' => 124.5398,
+        'status' => CompanyRequest::STATUS_PENDING,
+    ]);
+
+    Sanctum::actingAs($this->user);
+
+    $polygon = [
+        'type' => 'Polygon',
+        'coordinates' => [[[124.5390, 8.5445], [124.5405, 8.5445], [124.5405, 8.5460], [124.5390, 8.5460], [124.5390, 8.5445]]],
+    ];
+
+    $this->postJson("/api/company-requests/{$companyRequest->id}/accept", [
+        'geofence_polygon' => $polygon,
+        'geofence_enabled' => true,
+        'buildings' => [
+            [
+                'name' => 'Main Hall',
+                'code' => 'MH-1',
+                'latitude' => 8.5452,
+                'longitude' => 124.5398,
+                'geofence_radius_meters' => 30,
+                'geofence_enabled' => true,
+                'geofence_polygon' => null,
+            ],
+            [
+                'name' => 'Annex',
+                'code' => 'AX-1',
+                'latitude' => 8.5455,
+                'longitude' => 124.5401,
+                'geofence_radius_meters' => 25,
+                'geofence_enabled' => true,
+                'geofence_polygon' => null,
+            ],
+        ],
+    ])
+        ->assertSuccessful()
+        ->assertJsonPath('data.company.name', 'Tech Campus')
+        ->assertJsonCount(2, 'data.company.buildings');
+
+    $company = \App\Models\Company::query()
+        ->where('company_request_id', $companyRequest->id)
+        ->firstOrFail();
+
+    $this->assertDatabaseHas('buildings', [
+        'company_id' => $company->id,
+        'name' => 'Main Hall',
+        'code' => 'MH-1',
+    ]);
+
+    $this->assertDatabaseHas('buildings', [
+        'company_id' => $company->id,
+        'name' => 'Annex',
+        'code' => 'AX-1',
+    ]);
+});

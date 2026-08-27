@@ -49,7 +49,7 @@ class CompanyController extends Controller
      */
     public function show(Company $company): JsonResponse
     {
-        $company->load(['students', 'supervisors.user']);
+        $company->load(['students', 'supervisors.user', 'buildings']);
         return response()->json([
             'data' => $company->only([
                 'id',
@@ -67,6 +67,7 @@ class CompanyController extends Controller
                 'is_approved',
                 'students',
                 'supervisors',
+                'buildings',
             ]),
         ]);
     }

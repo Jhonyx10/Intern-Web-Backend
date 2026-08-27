@@ -12,6 +12,11 @@ class Company extends Model
     /**
      * @var list<string>
      */
+    protected $with = ['buildings'];
+
+    /**
+     * @var list<string>
+     */
     protected $fillable = [
         'company_request_id',
         'name',
@@ -94,5 +99,13 @@ class Company extends Model
     public function schedules(): HasMany
     {
         return $this->hasMany(CompanySchedule::class);
+    }
+
+    /**
+     * @return HasMany<Building, $this>
+     */
+    public function buildings(): HasMany
+    {
+        return $this->hasMany(Building::class);
     }
 }
