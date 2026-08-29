@@ -22,7 +22,7 @@ class MobileAuthController extends Controller
     {
         $validated = $request->validate([
             'student_number' => ['required', 'string'],
-            'password'       => ['required', 'string'],
+            'password' => ['required', 'string'],
         ]);
 
         $student = Student::query()
@@ -34,7 +34,7 @@ class MobileAuthController extends Controller
 
         if ($user === null || ! Hash::check($validated['password'], $user->password)) {
             throw ValidationException::withMessages([
-                'student_number' => ['Invalid student number or password.'],
+                'student_number' => ['Invalid student ID or password.'],
             ]);
         }
 
@@ -44,23 +44,23 @@ class MobileAuthController extends Controller
             ]);
         }
 
+        if (! $user->hasRole('intern')) {
+            throw ValidationException::withMessages([
+                'student_number' => ['This login is for intern accounts only.'],
+            ]);
+        }
+
         $token = $user->createToken('mobile-api');
 
         return response()->json([
-            'token_type'   => 'Bearer',
+            'token_type' => 'Bearer',
             'access_token' => $token->plainTextToken,
-            'user'         => [
-                'id'        => $user->id,
-                'name'      => $user->name,
-                'email'     => $user->email,
-                'role'      => $user->role?->name,
-            ],
-            'student'      => [
-                'id'             => $student->id,
+            'expires_at' => $token->accessToken->expires_at?->toIso8601String(),
+            'user' => $this->userPayload($user),
+            'student' => [
+                'id' => $student->id,
                 'student_number' => $student->student_number,
-                'first_name'     => $student->first_name,
-                'last_name'      => $student->last_name,
-                'face_enrolled'  => $student->faceProfile !== null && $student->faceProfile->is_active,
+                'full_name' => $student->fullName(),
             ],
         ]);
     }
@@ -72,15 +72,15 @@ class MobileAuthController extends Controller
     {
         $validated = $request->validate([
             'student_number' => ['nullable', 'string'],
-            'embedding'      => ['required', 'array', 'size:' . FaceEmbedding::LENGTH],
-            'embedding.*'    => ['numeric'],
+            'embedding' => ['required', 'array', 'size:'.FaceEmbedding::LENGTH],
+            'embedding.*' => ['numeric'],
         ]);
 
         $scannedEmbedding = FaceEmbedding::normalize($validated['embedding']);
 
         $matchingStudent = null;
         $bestDistance = 999.0;
-        $threshold = (float) config('services.face.match_threshold', 0.6);
+        $threshold = (float) config('services.face.match_threshold', 0.45);
 
         if (! empty($validated['student_number'])) {
             $student = Student::query()
@@ -101,7 +101,6 @@ class MobileAuthController extends Controller
                 $bestDistance = $distance;
             }
         } else {
-            // Scan across all enrolled active face profiles
             $faceProfiles = StudentFaceProfile::with(['student.user.role'])
                 ->where('is_active', true)
                 ->whereNotNull('face_embedding')
@@ -131,22 +130,16 @@ class MobileAuthController extends Controller
         $token = $user->createToken('mobile-face-api');
 
         return response()->json([
-            'message'          => 'Facial recognition authentication successful.',
+            'message' => 'Facial recognition authentication successful.',
             'face_match_score' => round($bestDistance, 4),
-            'token_type'       => 'Bearer',
-            'access_token'     => $token->plainTextToken,
-            'user'             => [
-                'id'    => $user->id,
-                'name'  => $user->name,
-                'email' => $user->email,
-                'role'  => $user->role?->name,
-            ],
-            'student'          => [
-                'id'             => $matchingStudent->id,
+            'token_type' => 'Bearer',
+            'access_token' => $token->plainTextToken,
+            'expires_at' => $token->accessToken->expires_at?->toIso8601String(),
+            'user' => $this->userPayload($user),
+            'student' => [
+                'id' => $matchingStudent->id,
                 'student_number' => $matchingStudent->student_number,
-                'first_name'     => $matchingStudent->first_name,
-                'last_name'      => $matchingStudent->last_name,
-                'face_enrolled'  => true,
+                'full_name' => $matchingStudent->fullName(),
             ],
         ]);
     }
@@ -157,8 +150,8 @@ class MobileAuthController extends Controller
     public function enrollFace(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'embedding'      => ['required', 'array', 'size:' . FaceEmbedding::LENGTH],
-            'embedding.*'    => ['numeric'],
+            'embedding' => ['required', 'array', 'size:'.FaceEmbedding::LENGTH],
+            'embedding.*' => ['numeric'],
             'reference_image' => ['nullable', 'string'],
         ]);
 
@@ -174,20 +167,41 @@ class MobileAuthController extends Controller
         $faceProfile = StudentFaceProfile::updateOrCreate(
             ['student_id' => $student->id],
             [
-                'face_embedding'       => $embedding,
+                'face_embedding' => $embedding,
                 'reference_image_path' => $validated['reference_image'] ?? null,
-                'enrolled_at'          => now(),
-                'is_active'            => true,
+                'enrolled_at' => now(),
+                'is_active' => true,
             ]
         );
 
         return response()->json([
-            'message'      => 'Face profile enrolled successfully.',
-            'face_profile' => [
-                'id'          => $faceProfile->id,
+            'message' => 'Face profile enrolled successfully.',
+            'profile' => [
+                'id' => $faceProfile->id,
                 'enrolled_at' => $faceProfile->enrolled_at?->toIso8601String(),
-                'is_active'   => $faceProfile->is_active,
+                'is_active' => $faceProfile->is_active,
             ],
         ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function userPayload(User $user): array
+    {
+        $user->loadMissing('role');
+
+        return [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'role_id' => $user->role_id,
+            'is_active' => $user->is_active,
+            'role' => $user->role ? [
+                'id' => $user->role->id,
+                'name' => $user->role->name,
+                'label' => $user->role->label,
+            ] : null,
+        ];
     }
 }

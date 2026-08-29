@@ -5,8 +5,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\CompanySchedule;
 use App\Models\Supervisor;
+use App\Models\Building;
+use App\Models\BuildingAssignment;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class SupervisorController extends Controller
 {
@@ -139,7 +142,7 @@ class SupervisorController extends Controller
         }
 
         $students = $supervisor->company->students()
-            ->with(['section', 'ojtSchedule', 'timeLogs'])
+            ->with(['section', 'ojtSchedule', 'timeLogs','buildings'])
             ->get()
             ->map(fn($s) => [
                 'id'             => $s->id,
@@ -151,6 +154,7 @@ class SupervisorController extends Controller
                 'section'        => $s->section ? ['id' => $s->section->id, 'name' => $s->section->name] : null,
                 'required_hours' => $s->ojtSchedule?->required_hours ?? null,
                 'total_hours'    => round($s->timeLogs->sum('duration_minutes') / 60, 2),
+                'building_id' => $s->activeBuildings->first()?->id,
             ]);
 
         return response()->json(['data' => $students]);
@@ -189,4 +193,45 @@ class SupervisorController extends Controller
 
         return response()->json(['data' => $logs]);
     }
+
+ public function assignInterns(Request $request, Building $building): JsonResponse
+    {
+        $supervisor = $this->getSupervisor($request);
+
+        if (!$supervisor || $supervisor->company_id !== $building->company_id) {
+            return response()->json(['message' => 'Unauthorized action.'], 403);
+        }
+
+        $validated = $request->validate([
+            'student_ids'   => ['required', 'array', 'min:1'],
+            'student_ids.*' => ['integer', 'exists:students,id'],
+            'date_start'    => ['required', 'date'],
+            'date_end'      => ['nullable', 'date', 'after_or_equal:date_start'],
+        ]);
+
+        DB::transaction(function () use ($validated, $building, $supervisor) {
+            foreach ($validated['student_ids'] as $studentId) {
+                // End any existing active assignment for this student (any building)
+                BuildingAssignment::where('student_id', $studentId)
+                    ->where('is_active', true)
+                    ->update([
+                        'is_active' => false,
+                        'date_end' => $validated['date_start'],
+                    ]);
+
+                // Create the new assignment
+                BuildingAssignment::create([
+                    'student_id'  => $studentId,
+                    'building_id' => $building->id,
+                    'assigned_by' => $supervisor->user_id,
+                    'date_start'  => $validated['date_start'],
+                    'date_end'    => $validated['date_end'] ?? null,
+                    'is_active'   => true,
+                ]);
+            }
+        });
+
+        return response()->json(['message' => 'Interns assigned successfully.']);
+    }
+
 }

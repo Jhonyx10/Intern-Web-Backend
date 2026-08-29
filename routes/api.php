@@ -87,6 +87,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/supervisor/schedules', [SupervisorController::class, 'storeSchedule']);
     Route::put('/supervisor/schedules/{schedule}', [SupervisorController::class, 'updateSchedule']);
     Route::delete('/supervisor/schedules/{schedule}', [SupervisorController::class, 'destroySchedule']);
+    Route::post('/buildings/{building}/assign-interns', [SupervisorController::class, 'assignInterns']);
 
     // User Profile & Department Settings
     Route::put('/user/profile', [UserProfileController::class, 'updateProfile']);

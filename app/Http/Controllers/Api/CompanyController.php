@@ -23,6 +23,7 @@ class CompanyController extends Controller
         $companies = Company::query()
             ->where('is_active', true)
             ->where('is_approved', true)
+            ->with('supervisors')
             ->orderBy('name')
             ->get([
                 'id',

@@ -79,6 +79,23 @@ class Student extends Model
         return $this->belongsToMany(Company::class)->withPivot(['supervisor_id', 'course_id'])->withTimestamps();
     }
 
+     public function buildings(): BelongsToMany
+    {
+        return $this->belongsToMany(Building::class, 'building_assignments')
+                    ->using(BuildingAssignment::class)
+                    ->withPivot('id', 'assigned_by', 'is_active', 'date_start', 'date_end')
+                    ->withTimestamps();
+    }
+
+    public function buildingAssignments(): HasMany
+    {
+        return $this->hasMany(BuildingAssignment::class);
+    }
+
+    public function activeBuildings(): BelongsToMany
+    {
+        return $this->buildings()->wherePivot('is_active', true);
+    }
     /**
      * Alias relationship for singular company access.
      *

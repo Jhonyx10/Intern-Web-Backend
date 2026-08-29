@@ -4,10 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\StaffLoginRequest;
+use App\Models\Student;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
@@ -55,16 +55,31 @@ class StaffAuthController extends Controller
     {
         $user = $request->user()->loadMissing('role', 'courseAsDean');
 
+        $student = null;
+        if ($user->hasRole('intern')) {
+            $studentRecord = Student::query()->where('user_id', $user->id)->first();
+            if ($studentRecord !== null) {
+                $student = [
+                    'id' => $studentRecord->id,
+                    'student_number' => $studentRecord->student_number,
+                    'full_name' => $studentRecord->fullName(),
+                ];
+            }
+        }
+
         return response()->json([
             'user' => $this->userPayload($user),
+            'student' => $student,
         ]);
     }
 
-    public function logout(Request $request): Response
+    public function logout(Request $request): JsonResponse
     {
         $request->user()->currentAccessToken()?->delete();
 
-        return response()->noContent();
+        return response()->json([
+            'message' => 'Logged out successfully.',
+        ]);
     }
 
     /**
@@ -76,6 +91,7 @@ class StaffAuthController extends Controller
             'id' => $user->id,
             'name' => $user->name,
             'email' => $user->email,
+            'role_id' => $user->role_id,
             'is_active' => $user->is_active,
             'role' => $user->role ? [
                 'id' => $user->role->id,
