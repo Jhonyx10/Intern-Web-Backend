@@ -66,9 +66,9 @@ class Supervisor extends Model
     }
 
     /**
-     * @return HasMany<OjtEvaluation, $this>
+     * @return HasMany<Evaluation, $this>
      */
-    public function ojtEvaluations(): HasMany
+    public function Evaluations(): HasMany
     {
         return $this->hasMany(OjtEvaluation::class);
     }

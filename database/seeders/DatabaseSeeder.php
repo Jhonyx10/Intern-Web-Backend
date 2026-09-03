@@ -21,6 +21,9 @@ class DatabaseSeeder extends Seeder
             DeanSeeder::class,
             DemoCompanySeeder::class,
             DemoCompanyRequestSeeder::class,
+            DemoStudentSeeder::class,
+            StudentDocumentSeeder::class,
+            DocumentTypeSeeder::class,
         ]);
     }
 }

@@ -16,6 +16,8 @@ use App\Http\Controllers\Api\MobileAuthController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\UserProfileController;
 use App\Http\Controllers\Api\SettingController;
+use App\Http\Controllers\Api\DocumentsController;
+use App\Http\Controllers\Api\OjtEvaluationController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function (): void {
@@ -30,6 +32,7 @@ Route::prefix('auth')->group(function (): void {
 });
 
 Route::middleware('auth:sanctum')->group(function (): void {
+    Broadcast::routes(['middleware' => ['auth:sanctum']]);
     // Role Dashboards
     Route::get('/dashboard/superadmin', [DashboardController::class, 'superAdmin']);
     Route::get('/dashboard/dean', [DashboardController::class, 'dean']);
@@ -66,6 +69,19 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/students/import', [StudentController::class, 'import']);
     Route::get('/templates/students-import', [StudentController::class, 'downloadImportTemplate']);
     
+    //student documents
+    Route::get('/student/documents/{id}', [DocumentsController::class, 'fetchStudentDocuments']);
+
+    //evaluation
+    Route::get('/evaluation-templates', [OjtEvaluationController::class, 'index']);
+    Route::post('/evaluation-templates', [OjtEvaluationController::class, 'store']);
+    Route::get('/show/evaluation/{id}', [OjtEvaluationController::class, 'showEvaluation']);
+    Route::post('/evaluations/{evaluation}/submit', [OjtEvaluationController::class, 'submit']);
+    
+    // Notifications Endpoints
+    Route::get('/notifications/unread', [OjtEvaluationController::class, 'unreadNotifications']);
+    Route::post('/notifications/mark-as-read', [OjtEvaluationController::class, 'markNotificationsAsRead']);
+
     // School Years
     Route::get('/school-years', [SYSectionController::class, 'indexSchoolYears']);
     Route::post('/school-years', [SYSectionController::class, 'storeSchoolYear']);
@@ -94,4 +110,17 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::put('/user/password', [UserProfileController::class, 'updatePassword']);
     Route::get('/settings', [SettingController::class, 'getSettings']);
     Route::post('/dean/settings', [SettingController::class, 'updateDeanSettings']);
+
+    // Intern Mobile API
+    Route::prefix('intern')->group(function (): void {
+        Route::get('/progress', [\App\Http\Controllers\Api\InternController::class, 'progress']);
+        Route::get('/profile', [\App\Http\Controllers\Api\InternController::class, 'profile']);
+        Route::put('/password', [\App\Http\Controllers\Api\InternController::class, 'updatePassword']);
+
+        // Time tracking
+        Route::get('/time/status', [\App\Http\Controllers\Api\InternController::class, 'timeStatus']);
+        Route::get('/time/logs', [\App\Http\Controllers\Api\InternController::class, 'timeLogs']);
+        Route::post('/time/punch', [\App\Http\Controllers\Api\InternController::class, 'timePunch']);
+    });
 });
+

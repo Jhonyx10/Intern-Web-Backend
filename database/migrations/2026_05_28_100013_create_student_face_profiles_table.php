@@ -17,7 +17,7 @@ return new class extends Migration
                 ->unique()
                 ->constrained('students')
                 ->cascadeOnDelete();
-            $table->string('reference_image_path');
+            $table->string('reference_image_path')->nullable();
             $table->text('face_embedding')->nullable();
             $table->timestamp('enrolled_at');
             $table->boolean('is_active')->default(true);

@@ -40,7 +40,7 @@ class CourseController extends Controller
             }
         }
 
-        return $course->load(['dean', 'programHead', 'majors']);
+        return $course->load(['dean', 'programHead', 'majors', 'sections.students', 'sections.schoolYear']);
     }
 
     public function store(Request $request)

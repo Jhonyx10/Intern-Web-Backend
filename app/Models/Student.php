@@ -150,19 +150,19 @@ class Student extends Model
     }
 
     /**
-     * @return HasOne<OjtEvaluation, $this>
+     * @return HasOne<Evaluation, $this>
      */
     public function ojtEvaluations(): HasMany
     {
-        return $this->hasMany(OjtEvaluation::class);
+        return $this->hasMany(Evaluation::class);
     }
 
     /**
-     * @return HasOne<OjtEvaluation, $this>
+     * @return HasOne<Evaluation, $this>
      */
     public function pendingOjtEvaluation(): HasOne
     {
-        return $this->hasOne(OjtEvaluation::class)
-            ->where('status', OjtEvaluation::STATUS_PENDING);
+        return $this->hasOne(Evaluation::class)
+            ->where('status', Evaluation::STATUS_PENDING);
     }
 }

@@ -95,6 +95,7 @@ class StudentController extends Controller
         $student = Student::with([
             'section.course',
             'section.courseMajor',
+            'section.coordinator',
             'companies.schedules.creator',
             'ojtSchedule',
             'timeLogs.taskPhotos',
