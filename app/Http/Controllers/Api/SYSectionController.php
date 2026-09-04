@@ -8,6 +8,7 @@ use App\Models\Section;
 use App\Models\User;
 use App\Support\DeanPortalScope;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Validation\ValidationException;
 
 class SYSectionController extends Controller
@@ -192,5 +193,17 @@ class SYSectionController extends Controller
                 'course_id' => ['You must be assigned to a department before managing years and sections.'],
             ]);
         }
+    }
+
+    public function coordinatorSections(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        // Fetch all sections where coordinator_user_id matches the logged-in user
+        $sections = Section::where('coordinator_user_id', $user->id)
+            ->with(['course', 'courseMajor', 'schoolYear', 'students.companies'])
+            ->get();
+
+        return response()->json($sections);
     }
 }

@@ -10,7 +10,23 @@ class Evaluation extends Model
 {
     use HasFactory;
 
+    protected $fillable = [
+        'course_id',
+        'evaluation_template_id', 
+        'student_id',
+        'evaluator_id',
+        'responses',
+        'computed_score',
+        'status',
+        'submitted_at'
+    ];
+
     protected $guarded = [];
+
+    protected $casts = [
+        'responses' => 'array', 
+        'computed_score' => 'float',
+    ];
 
     public function template(): BelongsTo
     {

@@ -2,7 +2,9 @@
 
 namespace App\Services;
 
+use App\Models\Evaluation;
 use App\Models\EvaluationTemplate;
+use App\Models\Student;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -44,5 +46,62 @@ class EvaluationService
 
             return $template->load(['items', 'courses']);
         });
+    }
+
+    /**
+     * Bulk assign an evaluation template to all eligible active students in a course
+     * who are placed in a company and linked with a supervisor.
+     */
+    public function bulkAssign(int $templateId, int $courseId): int
+    {
+        // Fetch students who:
+        // 1. Belong to a section within the target course
+        // 2. Are actively assigned to a company for this specific course via pivot
+        $students = Student::whereHas('section', function ($query) use ($courseId) {
+                $query->where('course_id', $courseId);
+            })
+            ->whereHas('companies', function ($query) use ($courseId) {
+                $query->where('company_student.course_id', $courseId);
+            })
+            ->with(['companies' => function ($query) use ($courseId) {
+                $query->where('company_student.course_id', $courseId);
+            }])
+            ->get();
+
+        if ($students->isEmpty()) {
+            return 0;
+        }
+
+        $assignedCount = 0;
+
+        DB::transaction(function () use ($students, $templateId, $courseId, &$assignedCount) {
+            foreach ($students as $student) {
+                // Extract the supervisor assigned to this student in the company pivot table
+                $pivotData = $student->companies->first()?->pivot;
+                $supervisorId = $pivotData?->supervisor_id ?? null;
+
+                // Safely create record (prevents duplicates if run multiple times)
+                $evaluation = Evaluation::firstOrCreate(
+                    [
+                        'evaluation_template_id' => $templateId,
+                        'student_id' => $student->id,
+                        'course_id' => $courseId,
+                    ],
+                    [
+                        'evaluator_id' => $supervisorId,
+                        'responses' => [],
+                        'status' => 'pending',
+                    ]
+                );
+
+                if ($evaluation->wasRecentlyCreated) {
+                    $assignedCount++;
+                }
+            }
+        });
+
+        Log::info("Bulk assigned evaluation template #{$templateId} to {$assignedCount} students in course #{$courseId}.");
+
+        return $assignedCount;
     }
 }

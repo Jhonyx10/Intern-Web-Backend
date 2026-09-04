@@ -101,6 +101,7 @@ class StudentController extends Controller
             'timeLogs.taskPhotos',
             'documents.documentType',
             'documents.documentRequirement',
+            'ojtEvaluations.template.items'
         ])->findOrFail($id);
 
         return response()->json(['data' => $student]);

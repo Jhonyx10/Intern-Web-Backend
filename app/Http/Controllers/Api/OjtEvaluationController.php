@@ -47,6 +47,25 @@ class OjtEvaluationController extends Controller
         return response()->json($template->load(['courses:id,code,name', 'items']), 201);
     }
 
+   public function bulkAssign(Request $request)
+    {
+        $request->validate([
+            'template_id' => 'required|integer',
+            'course_id' => 'required|integer',
+        ]);
+
+        $templateId = $request->input('template_id');
+        $courseId = $request->input('course_id');
+
+        // Call the service method with the 2 expected arguments
+        $assignedCount = $this->evaluationService->bulkAssign($templateId, $courseId);
+
+        return response()->json([
+            'message' => "Successfully assigned evaluation to {$assignedCount} students.",
+            'assigned_count' => $assignedCount,
+        ]);
+    }
+    
     public function submit(SubmitEvaluationRequest $request, Evaluation $evaluation): JsonResponse
     {
         $validated = $request->validated();

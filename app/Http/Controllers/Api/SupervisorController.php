@@ -142,7 +142,7 @@ class SupervisorController extends Controller
         }
 
         $students = $supervisor->company->students()
-            ->with(['section', 'ojtSchedule', 'timeLogs','buildings'])
+            ->with(['section', 'ojtSchedule', 'timeLogs','buildings', 'ojtEvaluations.template.items'])
             ->get()
             ->map(fn($s) => [
                 'id'             => $s->id,
@@ -155,6 +155,7 @@ class SupervisorController extends Controller
                 'required_hours' => $s->ojtSchedule?->required_hours ?? null,
                 'total_hours'    => round($s->timeLogs->sum('duration_minutes') / 60, 2),
                 'building_id' => $s->activeBuildings->first()?->id,
+                'ojt_evaluations' => $s->ojtEvaluations,
             ]);
 
         return response()->json(['data' => $students]);

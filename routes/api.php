@@ -76,6 +76,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/evaluation-templates', [OjtEvaluationController::class, 'index']);
     Route::post('/evaluation-templates', [OjtEvaluationController::class, 'store']);
     Route::get('/show/evaluation/{id}', [OjtEvaluationController::class, 'showEvaluation']);
+    Route::post('/evaluations/bulk-assign', [OjtEvaluationController::class, 'bulkAssign']);
     Route::post('/evaluations/{evaluation}/submit', [OjtEvaluationController::class, 'submit']);
     
     // Notifications Endpoints
@@ -88,6 +89,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::put('/school-years/{schoolYear}', [SYSectionController::class, 'updateSchoolYear']);
     Route::delete('/school-years/{schoolYear}', [SYSectionController::class, 'destroySchoolYear']);
     Route::get('/sections/{id}', [SYSectionController::class, 'sectionDetails']);
+    Route::get('/coordinator/sections', [SYSectionController::class, 'coordinatorSections']);
 
     // Sections (nested under school year)
     Route::get('/school-years/{schoolYear}/sections', [SYSectionController::class, 'indexSections']);
