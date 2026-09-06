@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Course extends Model
 {
@@ -60,5 +61,17 @@ class Course extends Model
     public function majors(): HasMany
     {
         return $this->hasMany(CourseMajor::class)->orderBy('sort_order')->orderBy('name');
+    }
+
+    public function settings()
+    {
+        return $this->hasOne(Setting::class, 'course_id');
+    }
+    
+    public function documentRequirements()
+    {
+        return $this->belongsToMany(DocumentRequirement::class)
+            ->withPivot('deadline_at')
+            ->withTimestamps();
     }
 }

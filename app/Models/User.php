@@ -40,6 +40,10 @@ class User extends Authenticatable
         return $this->belongsTo(Course::class);
     }
 
+    public function student()
+    {
+        return $this->belongsTo(Student::class, 'user_id');
+    }
     /**
      * @return BelongsTo<User, $this>
      */

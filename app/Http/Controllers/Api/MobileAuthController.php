@@ -6,15 +6,18 @@ use App\Http\Controllers\Controller;
 use App\Models\Student;
 use App\Models\StudentFaceProfile;
 use App\Models\User;
+use App\Services\PythonMicroservice;
 use App\Support\FaceEmbedding;
 use App\Support\FaceMatcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 class MobileAuthController extends Controller
 {
+    public function __construct(private readonly PythonMicroservice $python) {}
     /**
      * Mobile login for Intern/Student using student_number and password.
      */
@@ -26,7 +29,7 @@ class MobileAuthController extends Controller
         ]);
 
         $student = Student::query()
-            ->with(['user.role', 'faceProfile'])
+            ->with(['user.role', 'faceProfile', 'section.course.settings'])
             ->where('student_number', $validated['student_number'])
             ->first();
 
@@ -62,21 +65,31 @@ class MobileAuthController extends Controller
                 'student_number' => $student->student_number,
                 'full_name' => $student->fullName(),
             ],
+            'section' => [
+                'name' => $student->section->name,
+                'code' => $student->section->code,
+            ],
+            'course' => [
+                'course_name' => $student->section->course->name,
+                'required_hrs' => $student->section->course->required_hours,
+            ],
+            'settings' => $student->section->course->settings
         ]);
     }
 
-    /**
-     * Face Recognition Login for Intern/Student using 128-D face embedding array.
+/**
+     * Face Recognition Login for Intern/Student using an Image upload.
      */
     public function faceLogin(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'student_number' => ['nullable', 'string'],
-            'embedding' => ['required', 'array', 'size:'.FaceEmbedding::LENGTH],
-            'embedding.*' => ['numeric'],
+            'image' => ['required', 'image', 'max:5120'], // Max 5MB
         ]);
 
-        $scannedEmbedding = FaceEmbedding::normalize($validated['embedding']);
+        // Hand image to Python service to get the embedding array
+        $embeddingList = $this->python->extractEmbedding($request->file('image'));
+        $scannedEmbedding = FaceEmbedding::normalize($embeddingList);
 
         $matchingStudent = null;
         $bestDistance = 999.0;
@@ -90,7 +103,7 @@ class MobileAuthController extends Controller
 
             if (! $student || ! $student->faceProfile || ! $student->faceProfile->is_active || empty($student->faceProfile->face_embedding)) {
                 throw ValidationException::withMessages([
-                    'embedding' => ['No face profile enrolled for this student number.'],
+                    'image' => ['No face profile enrolled for this student number.'],
                 ]);
             }
 
@@ -122,7 +135,7 @@ class MobileAuthController extends Controller
 
         if (! $matchingStudent) {
             throw ValidationException::withMessages([
-                'embedding' => ['Face recognition failed. Face did not match any enrolled student profile.'],
+                'image' => ['Face recognition failed. Face did not match any enrolled student profile.'],
             ]);
         }
 
@@ -150,9 +163,7 @@ class MobileAuthController extends Controller
     public function enrollFace(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'embedding' => ['required', 'array', 'size:'.FaceEmbedding::LENGTH],
-            'embedding.*' => ['numeric'],
-            'reference_image' => ['nullable', 'string'],
+            'image' => ['required', 'image', 'max:5120'], // Max 5MB
         ]);
 
         $user = $request->user();
@@ -162,25 +173,58 @@ class MobileAuthController extends Controller
             return response()->json(['message' => 'Student record not found for this user.'], 404);
         }
 
-        $embedding = FaceEmbedding::normalize($validated['embedding']);
+        try {
+            // Get embedding from Python Service
+            $imageFile = $request->file('image');
+            $embeddingList = $this->python->extractEmbedding($imageFile);
+            $embedding = FaceEmbedding::normalize($embeddingList);
 
-        $faceProfile = StudentFaceProfile::updateOrCreate(
-            ['student_id' => $student->id],
-            [
-                'face_embedding' => $embedding,
-                'reference_image_path' => $validated['reference_image'] ?? null,
-                'enrolled_at' => now(),
-                'is_active' => true,
-            ]
-        );
+            // Optional: Save original image for review (in storage/app/public/faces)
+            $referenceImagePath = $imageFile->store('faces', 'public');
+
+            $faceProfile = StudentFaceProfile::updateOrCreate(
+                ['student_id' => $student->id],
+                [
+                    'face_embedding' => $embedding,
+                    'reference_image_path' => $referenceImagePath,
+                    'enrolled_at' => now(),
+                    'is_active' => true,
+                ]
+            );
+
+            return response()->json([
+                'message' => 'Face profile enrolled successfully.',
+                'profile' => [
+                    'id' => $faceProfile->id,
+                    'enrolled_at' => $faceProfile->enrolled_at?->toIso8601String(),
+                    'is_active' => $faceProfile->is_active,
+                ],
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Face extraction error: ' . $e->getMessage());
+            
+            // If the error was thrown by our own ValidationException, pass it through directly
+            if ($e instanceof ValidationException) {
+                throw $e;
+            }
+
+            return response()->json([
+                'message' => 'An error occurred connecting to the face recognition service.',
+                'error' => config('app.debug') ? $e->getMessage() : null
+            ], 500);
+        }
+    }
+
+    /**
+     * Logout for Intern/Student mobile user (revoke current access token).
+     */
+    public function logout(Request $request): JsonResponse
+    {
+        $request->user()?->currentAccessToken()?->delete();
 
         return response()->json([
-            'message' => 'Face profile enrolled successfully.',
-            'profile' => [
-                'id' => $faceProfile->id,
-                'enrolled_at' => $faceProfile->enrolled_at?->toIso8601String(),
-                'is_active' => $faceProfile->is_active,
-            ],
+            'message' => 'Successfully logged out.',
         ]);
     }
 

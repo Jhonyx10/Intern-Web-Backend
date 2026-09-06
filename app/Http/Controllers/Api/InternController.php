@@ -5,16 +5,20 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Student;
 use App\Models\TimeLog;
+use App\Services\PythonMicroservice;
 use App\Support\FaceEmbedding;
 use App\Support\FaceMatcher;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 class InternController extends Controller
 {
+    public function __construct(private readonly PythonMicroservice $python) {}
+
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
@@ -175,6 +179,7 @@ class InternController extends Controller
                 'latitude' => (float)$company->latitude,
                 'longitude' => (float)$company->longitude,
                 'radius_meters' => (float)$company->geofence_radius_meters,
+                'geofence_polygon' => $company->geofence_polygon
             ] : null,
             'progress' => [
                 'required_hours'               => $requiredHours,
@@ -343,14 +348,17 @@ class InternController extends Controller
 
     public function timePunch(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'action'                  => ['required', 'in:time_in,time_out'],
-            'embedding'               => ['required', 'array', 'size:' . FaceEmbedding::LENGTH],
-            'embedding.*'             => ['numeric'],
-            'device_info'             => ['nullable', 'string', 'max:500'],
-            'latitude'                => ['nullable', 'numeric', 'between:-90,90'],
-            'longitude'               => ['nullable', 'numeric', 'between:-180,180'],
+        $action = $request->input('action');
+
+        $request->validate([
+            'action'                   => ['required', 'in:time_in,time_out,break_out,break_in'],
+            // Image is required ONLY for time_in and time_out
+            'image'                    => ['required_if:action,time_in,time_out', 'nullable', 'image', 'max:5120'], 
+            'device_info'              => ['nullable', 'string', 'max:500'],
+            'latitude'                 => ['required', 'numeric', 'between:-90,90'],
+            'longitude'                => ['required', 'numeric', 'between:-180,180'],
             'location_accuracy_meters' => ['nullable', 'numeric'],
+            'timestamp'                => ['nullable', 'date'],
         ]);
 
         $student = $this->resolveStudent($request);
@@ -359,40 +367,61 @@ class InternController extends Controller
             return response()->json(['message' => 'Student record not found.'], 404);
         }
 
-        $faceProfile = $student->faceProfile;
+        $faceMatchScore = null;
 
-        if (!$faceProfile || !$faceProfile->is_active || empty($faceProfile->face_embedding)) {
-            return response()->json(['message' => 'Please enroll your face first before punching in/out.'], 422);
+        // --- FACE RECOGNITION (Only runs for time_in and time_out) ---
+        if (in_array($action, ['time_in', 'time_out'])) {
+            $faceProfile = $student->faceProfile;
+
+            if (!$faceProfile || !$faceProfile->is_active || empty($faceProfile->face_embedding)) {
+                return response()->json(['message' => 'Please enroll your face first before punching in/out.'], 422);
+            }
+
+            try {
+                $embeddingList = $this->python->extractEmbedding($request->file('image'));
+            } catch (ValidationException $e) {
+                throw $e;
+            } catch (\Exception $e) {
+                Log::error('Face punch extraction error: ' . $e->getMessage());
+                return response()->json([
+                    'message' => 'Could not connect to the face recognition service. Please try again.',
+                    'error'   => config('app.debug') ? $e->getMessage() : null,
+                ], 500);
+            }
+
+            $scannedEmbedding = FaceEmbedding::normalize($embeddingList);
+            $threshold        = (float) config('services.face.match_threshold', 0.45);
+            $distance         = FaceMatcher::euclideanDistance($faceProfile->face_embedding, $scannedEmbedding);
+
+            if ($distance > $threshold) {
+                return response()->json([
+                    'message'          => 'Face recognition failed. Please try again in better lighting.',
+                    'face_match_score' => round($distance, 4),
+                ], 422);
+            }
+
+            $faceMatchScore = round($distance, 4);
         }
 
-        // Verify face match
-        $scannedEmbedding = FaceEmbedding::normalize($validated['embedding']);
-        $threshold        = (float) config('services.face.match_threshold', 0.45);
-        $distance         = FaceMatcher::euclideanDistance($faceProfile->face_embedding, $scannedEmbedding);
+        $now       = $request->filled('timestamp') ? Carbon::parse($request->input('timestamp')) : Carbon::now();
+        $latitude  = $request->input('latitude');
+        $longitude = $request->input('longitude');
 
-        if ($distance > $threshold) {
-            return response()->json([
-                'message'         => 'Face recognition failed. Please try again in better lighting.',
-                'face_match_score' => round($distance, 4),
-            ], 422);
-        }
-
-        $action         = $validated['action'];
-        $now            = Carbon::now();
-        $faceMatchScore = round($distance, 4);
+        // Get any currently active punch (where time_out is null)
+        $openLog = $student->timeLogs()->whereNull('time_out')->latest('time_in')->first();
 
         if ($action === 'time_in') {
-            // Check no open log already exists
-            $existing = $student->timeLogs()->whereNull('time_out')->first();
-            if ($existing) {
+            if ($openLog) {
                 return response()->json(['message' => 'You already have an open time log. Please punch out first.'], 422);
             }
 
             $log = $student->timeLogs()->create([
                 'time_in'             => $now,
+                'latitude_in'         => $latitude,
+                'longitude_in'        => $longitude,
                 'verification_method' => 'facial_recognition',
                 'face_match_score'    => $faceMatchScore,
-                'device_info'         => $validated['device_info'] ?? null,
+                'device_info'         => $request->input('device_info'),
             ]);
 
             $log->load('taskPhotos');
@@ -403,28 +432,78 @@ class InternController extends Controller
             ], 201);
         }
 
-        // time_out
-        $openLog = $student->timeLogs()->whereNull('time_out')->latest('time_in')->first();
-
+        // Everything else requires an open log:
         if (!$openLog) {
-            return response()->json(['message' => 'No open time log found. Please punch in first.'], 422);
+            return response()->json(['message' => 'No active shift found. Please punch in first.'], 422);
         }
 
-        $durationMinutes = (int) $openLog->time_in->diffInMinutes($now);
+        if ($action === 'break_out') {
+            if ($openLog->break_out) {
+                return response()->json(['message' => 'You have already broken out.'], 422);
+            }
 
-        $openLog->update([
-            'time_out'         => $now,
-            'duration_minutes' => $durationMinutes,
-            'face_match_score' => $faceMatchScore,
-        ]);
+            $openLog->update([
+                'break_out' => $now,
+                // No face score needed here
+            ]);
 
-        $openLog->load('taskPhotos');
+            $openLog->load('taskPhotos');
 
-        return response()->json([
-            'message' => 'Punched out successfully.',
-            'log'     => $this->formatLogSegment($openLog),
-        ]);
+            return response()->json([
+                'message' => 'Break started successfully.',
+                'log'     => $this->formatLogSegment($openLog),
+            ]);
+        }
+
+        if ($action === 'break_in') {
+            if (!$openLog->break_out) {
+                return response()->json(['message' => 'You must break out before you can break in.'], 422);
+            }
+            if ($openLog->break_in) {
+                return response()->json(['message' => 'You have already broken in.'], 422);
+            }
+
+            $openLog->update([
+                'break_in' => $now,
+                // No face score needed here
+            ]);
+
+            $openLog->load('taskPhotos');
+
+            return response()->json([
+                'message' => 'Break ended successfully. Welcome back!',
+                'log'     => $this->formatLogSegment($openLog),
+            ]);
+        }
+
+        if ($action === 'time_out') {
+            $grossDurationMinutes = (int) Carbon::parse($openLog->time_in)->diffInMinutes($now);
+            
+            $breakDurationMinutes = 0;
+            if ($openLog->break_out && $openLog->break_in) {
+                $breakDurationMinutes = (int) Carbon::parse($openLog->break_out)->diffInMinutes(Carbon::parse($openLog->break_in));
+            }
+
+            $netDurationMinutes = max(0, $grossDurationMinutes - $breakDurationMinutes);
+
+            $openLog->update([
+                'time_out'         => $now,
+                'latitude_out'     => $latitude,
+                'longitude_out'    => $longitude,
+                'duration_minutes' => $netDurationMinutes,
+                'face_match_score' => $faceMatchScore,
+            ]);
+
+            $openLog->load('taskPhotos');
+
+            return response()->json([
+                'message' => 'Punched out successfully.',
+                'log'     => $this->formatLogSegment($openLog),
+            ]);
+        }
     }
+
+
 
     // -------------------------------------------------------------------------
     // Profile
@@ -515,6 +594,146 @@ class InternController extends Controller
         $user->update(['password' => Hash::make($validated['password'])]);
 
         return response()->json(['message' => 'Password updated successfully.']);
+    }
+
+    // -------------------------------------------------------------------------
+    // Document Upload & Fetch
+    // -------------------------------------------------------------------------
+
+    public function getDocuments(Request $request): JsonResponse
+    {
+        $student = $this->resolveStudent($request);
+        if (!$student) {
+            return response()->json(['message' => 'Student record not found.'], 404);
+        }
+
+        $courseId = $student->section?->course_id;
+        
+        $requirements = $courseId ? \App\Models\Course::find($courseId)->documentRequirements()->get() : collect();
+
+        $submitted = \App\Models\StudentDocument::where('student_id', $student->id)->get()->keyBy('document_requirement_id');
+
+        $data = $requirements->map(function ($req) use ($submitted) {
+            $sub = $submitted->get($req->id);
+            
+            $status = 'pending';
+            $uri = null;
+            
+            if ($sub) {
+                // Determine raw status value
+                $status = is_object($sub->review_status) ? $sub->review_status->value : $sub->review_status;
+                if ($status === 'pending') {
+                    $status = 'uploaded'; // UI uses 'uploaded'
+                }
+                $uri = $sub->file_path ? asset('storage/' . ltrim($sub->file_path, '/')) : null;
+            }
+
+            return [
+                'id'     => (string) $req->id,
+                'title'  => $req->title,
+                'status' => $status,
+                'uri'    => $sub ? url('/api/intern/documents/download/' . $req->id) : null,
+            ];
+        });
+
+        return response()->json($data);
+    }
+
+    public function downloadDocument(int $id, Request $request)
+    {
+        $student = $this->resolveStudent($request);
+        if (!$student) {
+            return response()->json(['message' => 'Student record not found.'], 404);
+        }
+
+        $sub = \App\Models\StudentDocument::where('student_id', $student->id)
+            ->where('document_requirement_id', $id)
+            ->first();
+
+        if (!$sub || !$sub->file_path) {
+            return response()->json(['message' => 'File not found.'], 404);
+        }
+
+        $fullPath = storage_path('app/public/' . ltrim($sub->file_path, '/'));
+        if (!file_exists($fullPath)) {
+            // Fallback for storage/app root
+            $fullPath = storage_path('app/' . ltrim($sub->file_path, '/'));
+        }
+
+        if (!file_exists($fullPath)) {
+            return response()->json(['message' => 'File physical asset missing.'], 404);
+        }
+
+        return response()->file($fullPath, [
+            'Content-Type' => $sub->mime_type ?: 'application/pdf',
+            'Content-Disposition' => 'inline; filename="' . ($sub->original_filename ?: 'document.pdf') . '"',
+        ]);
+    }
+
+    public function uploadDocument(Request $request): JsonResponse
+    {
+        $request->validate([
+            'document_id' => ['required', 'integer'],
+            'file'        => ['required', 'file', 'max:10240'], // Max 10MB
+        ]);
+
+        $student = $this->resolveStudent($request);
+
+        if (!$student) {
+            return response()->json(['message' => 'Student record not found.'], 404);
+        }
+
+        $requirement = \App\Models\DocumentRequirement::find($request->document_id);
+        if (!$requirement) {
+            return response()->json(['message' => 'Document requirement not found.'], 404);
+        }
+
+        $file = $request->file('file');
+        $path = $file->store('student_documents', 'public');
+
+        $studentDocument = \App\Models\StudentDocument::updateOrCreate(
+            [
+                'student_id'              => $student->id,
+                'document_requirement_id' => $requirement->id,
+            ],
+            [
+                'file_path'         => $path,
+                'original_filename' => $file->getClientOriginalName(),
+                'file_size'         => $file->getSize(),
+                'mime_type'         => $file->getMimeType(),
+                'uploaded_at'       => Carbon::now(),
+                'review_status'     => \App\Support\DocumentReviewStatus::Pending,
+            ]
+        );
+
+        return response()->json([
+            'message'  => 'Document uploaded successfully.',
+            'document' => $studentDocument,
+        ], 200);
+    }
+
+    public function requestCompany(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'name'      => ['required', 'string', 'max:255'],
+            'address'   => ['required', 'string', 'max:500'],
+            'latitude'  => ['nullable', 'numeric', 'between:-90,90'],
+            'longitude' => ['nullable', 'numeric', 'between:-180,180'],
+        ]);
+
+        $companyRequest = \App\Models\CompanyRequest::create([
+            'user_id'   => auth()->id(),
+            'name'      => $validated['name'],
+            'address'   => $validated['address'],
+            'latitude'  => $validated['latitude'] ?? null,
+            'longitude' => $validated['longitude'] ?? null,
+            'status'    => \App\Models\CompanyRequest::STATUS_PENDING,
+        ]);
+
+        return response()->json([
+            'message' => 'Company request submitted successfully.',
+            'request' => $companyRequest,
+        ], 201);
     }
 }
 

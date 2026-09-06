@@ -39,4 +39,9 @@ return [
         'match_threshold' => (float) env('FACE_MATCH_THRESHOLD', 0.45),
     ],
 
+    'python_microservice' => [
+        'url'     => env('PYTHON_MICROSERVICE_URL', 'http://127.0.0.1:8001'),
+        'timeout' => (int) env('PYTHON_MICROSERVICE_TIMEOUT', 60),
+    ],
+
 ];

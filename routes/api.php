@@ -26,7 +26,7 @@ Route::prefix('auth')->group(function (): void {
     Route::post('/face-login', [MobileAuthController::class, 'faceLogin']);
 
     Route::middleware('auth:sanctum')->group(function (): void {
-        Route::post('/logout', [StaffAuthController::class, 'logout']);
+        Route::post('/logout', [MobileAuthController::class, 'logout']);
         Route::get('/me', [StaffAuthController::class, 'me']);
     });
 });
@@ -69,8 +69,19 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/students/import', [StudentController::class, 'import']);
     Route::get('/templates/students-import', [StudentController::class, 'downloadImportTemplate']);
     
-    //student documents
+    //documents
     Route::get('/student/documents/{id}', [DocumentsController::class, 'fetchStudentDocuments']);
+    Route::get('/student/documents/{id}/view', [DocumentsController::class, 'webViewDocument']);
+    Route::get('/submitted-documents', [DocumentsController::class, 'fetchSubmittedDocuments']);
+    Route::get('/document-requirements', [DocumentsController::class, 'index']);
+    Route::post('/document-requirements', [DocumentsController::class, 'storeRequirement']);
+    Route::patch('/student/documents/{document}/status', [DocumentsController::class, 'updateStatus']);
+
+    Route::get('/document-types', [DocumentsController::class, 'indexTypes']);
+    Route::post('/document-types', [DocumentsController::class, 'storeDocumentType']);
+
+    Route::get('/courses/{course}/document-requirements', [DocumentsController::class, 'courseRequirements']);
+    Route::put('/courses/{course}/document-requirements', [DocumentsController::class, 'syncCourseRequirements']);
 
     //evaluation
     Route::get('/evaluation-templates', [OjtEvaluationController::class, 'index']);
@@ -116,8 +127,17 @@ Route::middleware('auth:sanctum')->group(function (): void {
     // Intern Mobile API
     Route::prefix('intern')->group(function (): void {
         Route::get('/progress', [\App\Http\Controllers\Api\InternController::class, 'progress']);
+        Route::get('/documents', [\App\Http\Controllers\Api\InternController::class, 'getDocuments']);
         Route::get('/profile', [\App\Http\Controllers\Api\InternController::class, 'profile']);
         Route::put('/password', [\App\Http\Controllers\Api\InternController::class, 'updatePassword']);
+        
+        Route::post('/documents/upload', [\App\Http\Controllers\Api\InternController::class, 'uploadDocument']);
+        Route::get('/documents/download/{id}', [\App\Http\Controllers\Api\InternController::class, 'downloadDocument']);
+
+        //face enrollment
+        Route::post('/face/enrollment',[MobileAuthController::class, 'enrollFace']);
+        // Company Request
+        Route::post('/company/request', [\App\Http\Controllers\Api\InternController::class, 'requestCompany']);
 
         // Time tracking
         Route::get('/time/status', [\App\Http\Controllers\Api\InternController::class, 'timeStatus']);

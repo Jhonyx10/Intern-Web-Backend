@@ -13,7 +13,6 @@ class StudentDocument extends Model
      */
     protected $fillable = [
         'student_id',
-        'document_type_id',
         'document_requirement_id',
         'file_path',
         'original_filename',
