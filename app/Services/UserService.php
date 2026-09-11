@@ -10,8 +10,24 @@ use Illuminate\Validation\ValidationException;
 
 class UserService
 {
-    public function createAccount($data)
+   public function createAccount($data)
     {
+        $adminRole = Role::where('name', 'Admin')->orWhere('name', 'admin')->first();
+
+        if ($adminRole) {
+            $isCreatingAdmin = isset($data['role_id']) && (int) $data['role_id'] === $adminRole->id;
+
+            if ($isCreatingAdmin) {
+                $adminExists = User::where('role_id', $adminRole->id)->exists();
+
+                if ($adminExists) {
+                    throw ValidationException::withMessages([
+                        'role_id' => ['An admin account already exists. Only one admin account is allowed.'],
+                    ]);
+                }
+            }
+        }
+
         $user = User::create($data);
         return $user;
     }

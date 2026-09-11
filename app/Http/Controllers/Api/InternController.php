@@ -48,6 +48,8 @@ class InternController extends Controller
             'session_period'              => $log->session_period,
             'task_note'                   => $log->task_note,
             'time_in'                     => $log->time_in?->toIso8601String(),
+            'break_out'                   => $log->break_out?->toIso8601String(),
+            'break_in'                    => $log->break_in?->toIso8601String(),
             'time_out'                    => $log->time_out?->toIso8601String(),
             'duration_minutes'            => $durationMinutes,
             'duration_hours'              => $durationMinutes !== null ? round($durationMinutes / 60, 2) : null,
@@ -359,6 +361,7 @@ class InternController extends Controller
             'longitude'                => ['required', 'numeric', 'between:-180,180'],
             'location_accuracy_meters' => ['nullable', 'numeric'],
             'timestamp'                => ['nullable', 'date'],
+            'task_note'                => ['nullable', 'string', 'max:1000'], 
         ]);
 
         $student = $this->resolveStudent($request);
@@ -492,6 +495,7 @@ class InternController extends Controller
                 'longitude_out'    => $longitude,
                 'duration_minutes' => $netDurationMinutes,
                 'face_match_score' => $faceMatchScore,
+                'task_note'        => $request->input('task_note'),
             ]);
 
             $openLog->load('taskPhotos');

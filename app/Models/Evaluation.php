@@ -10,6 +10,9 @@ class Evaluation extends Model
 {
     use HasFactory;
 
+    public const STATUS_PENDING = 'pending';
+    public const STATUS_SUBMITTED = 'submitted';
+
     protected $fillable = [
         'course_id',
         'evaluation_template_id', 

@@ -16,6 +16,8 @@ class TimeLog extends Model
         'session_period',
         'task_note',
         'time_in',
+        'break_out',
+        'break_in',
         'time_out',
         'duration_minutes',
         'verification_method',
@@ -30,6 +32,8 @@ class TimeLog extends Model
     {
         return [
             'time_in' => 'datetime',
+            'break_out' => 'datetime',
+            'break_in' => 'datetime',
             'time_out' => 'datetime',
             'face_match_score' => 'decimal:2',
         ];
@@ -49,5 +53,13 @@ class TimeLog extends Model
     public function taskPhotos(): HasMany
     {
         return $this->hasMany(TimeLogTaskPhoto::class);
+    }
+
+    /**
+     * @return HasMany<GeofenceEvent, $this>
+     */
+    public function geofenceEvents(): HasMany
+    {
+        return $this->hasMany(GeofenceEvent::class);
     }
 }

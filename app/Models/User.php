@@ -32,6 +32,11 @@ class User extends Authenticatable
         return $this->belongsTo(Role::class);
     }
 
+    public function hasRole(string $roleName): bool
+    {
+        return $this->role?->name === $roleName;
+    }
+
     /**
      * @return BelongsTo<Course, $this>
      */
@@ -58,11 +63,6 @@ class User extends Authenticatable
     public function createdUsers(): HasMany
     {
         return $this->hasMany(User::class, 'created_by');
-    }
-
-    public function hasRole(string $role): bool
-    {
-        return $this->role?->name === $role;
     }
 
     public function applyCourseScope(Builder $builder, int $courseId): void

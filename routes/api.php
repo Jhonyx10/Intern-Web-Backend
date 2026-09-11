@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\UserProfileController;
 use App\Http\Controllers\Api\SettingController;
 use App\Http\Controllers\Api\DocumentsController;
 use App\Http\Controllers\Api\OjtEvaluationController;
+use App\Http\Controllers\Api\GeofenceEventController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function (): void {
@@ -107,6 +108,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/school-years/{schoolYear}/sections', [SYSectionController::class, 'storeSection']);
     Route::put('/school-years/{schoolYear}/sections/{section}', [SYSectionController::class, 'updateSection']);
     Route::delete('/school-years/{schoolYear}/sections/{section}', [SYSectionController::class, 'destroySection']);
+    Route::get('/geofence-events', [GeofenceEventController::class, 'forCourse']);
 
     // Supervisor portal
     Route::get('/supervisor/profile', [SupervisorController::class, 'profile']);
@@ -143,6 +145,9 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('/time/status', [\App\Http\Controllers\Api\InternController::class, 'timeStatus']);
         Route::get('/time/logs', [\App\Http\Controllers\Api\InternController::class, 'timeLogs']);
         Route::post('/time/punch', [\App\Http\Controllers\Api\InternController::class, 'timePunch']);
+
+        //interns location alert tracker
+        Route::post('/time/geofence-event', [GeofenceEventController::class, 'store']);
     });
 });
 
