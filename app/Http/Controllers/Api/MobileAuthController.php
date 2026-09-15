@@ -26,6 +26,7 @@ class MobileAuthController extends Controller
         $validated = $request->validate([
             'student_number' => ['required', 'string'],
             'password' => ['required', 'string'],
+            'fcm_token' => ['nullable', 'string'],
         ]);
 
         $student = Student::query()
@@ -51,6 +52,10 @@ class MobileAuthController extends Controller
             throw ValidationException::withMessages([
                 'student_number' => ['This login is for intern accounts only.'],
             ]);
+        }
+
+        if (isset($validated['fcm_token'])) {
+            $user->update(['fcm_token' => $validated['fcm_token']]);
         }
 
         $token = $user->createToken('mobile-api');
@@ -85,6 +90,7 @@ class MobileAuthController extends Controller
         $validated = $request->validate([
             'student_number' => ['nullable', 'string'],
             'image' => ['required', 'image', 'max:5120'], // Max 5MB
+            'fcm_token' => ['nullable', 'string'],
         ]);
 
         // Hand image to Python service to get the embedding array
@@ -140,6 +146,11 @@ class MobileAuthController extends Controller
         }
 
         $user = $matchingStudent->user;
+        
+        if (isset($validated['fcm_token'])) {
+            $user->update(['fcm_token' => $validated['fcm_token']]);
+        }
+
         $token = $user->createToken('mobile-face-api');
 
         return response()->json([

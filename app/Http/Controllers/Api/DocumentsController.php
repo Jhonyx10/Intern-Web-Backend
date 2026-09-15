@@ -41,7 +41,7 @@ class DocumentsController extends Controller
             'reviewedBy'
         ]);
 
-        if ($user->hasRole('super_admin')) {
+        if ($user->hasRole('super_admin') || $user->hasRole('admin')) {
             if ($request->filled('course_id')) {
                 $courseId = $request->integer('course_id');
                 $query->whereHas('student.section', function ($q) use ($courseId) {
@@ -71,8 +71,12 @@ class DocumentsController extends Controller
                 ->orWhereHas('documentRequirement', function ($rq) use ($search) {
                     $rq->where('title', 'like', "%{$search}%");
                 })
-                ->orWhereHas('documentType', function ($tq) use ($search) {
+                ->orWhereHas('documentRequirement.documentType', function ($tq) use ($search) {
                     $tq->where('name', 'like', "%{$search}%");
+                })
+                ->orWhereHas('student.section.course', function ($cq) use ($search) {
+                    $cq->where('name', 'like', "%{$search}%")
+                       ->orWhere('code', 'like', "%{$search}%");
                 })
                 ->orWhere('original_filename', 'like', "%{$search}%");
             });

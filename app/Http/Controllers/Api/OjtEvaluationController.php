@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Evaluation;
+use App\Models\Student;
 use App\Models\EvaluationTemplate;
 use App\Http\Requests\SubmitEvaluationRequest;
 use App\Http\Requests\StoreEvaluationTemplateRequest;
@@ -13,6 +14,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 use Throwable;
+use Kreait\Firebase\Messaging\CloudMessage;
+use Kreait\Firebase\Messaging\Notification as FirebaseNotification;
+use Kreait\Laravel\Firebase\Facades\Firebase;
+use App\Http\Resources\EvaluationResource;
 
 class OjtEvaluationController extends Controller
 {
@@ -89,6 +94,9 @@ class OjtEvaluationController extends Controller
             'computed_score' => $computedScore,
         ]);
 
+        // Notify the intern that their evaluation has been filled up
+        $this->sendSubmissionNotification($evaluation);
+
         return response()->json([
             'message' => 'Evaluation submitted successfully.',
             'evaluation' => $evaluation,
@@ -105,6 +113,30 @@ class OjtEvaluationController extends Controller
         $request->user()->unreadNotifications->markAsRead();
 
         return response()->json(['message' => 'Notifications marked as read.']);
+    }
+
+    private function sendSubmissionNotification(Evaluation $evaluation): void
+    {
+        $evaluation->loadMissing('student.user');
+
+        $fcmToken = $evaluation->student?->user?->fcm_token;
+
+        if (! $fcmToken) {
+            return;
+        }
+
+        try {
+            $message = CloudMessage::new()
+                ->withToken($fcmToken)
+                ->withNotification(FirebaseNotification::create(
+                    'Evaluation Completed',
+                    'Your OJT evaluation has been filled up by your supervisor. You can now view your results.'
+                ));
+
+            Firebase::messaging()->send($message);
+        } catch (\Exception $e) {
+            Log::error('Failed to send evaluation submission FCM notification: ' . $e->getMessage());
+        }
     }
 
     private function calculateScore(Evaluation $evaluation, array $responses): ?float
@@ -134,5 +166,31 @@ class OjtEvaluationController extends Controller
         $evaluation = EvaluationTemplate::with(['items', 'creator'])->findOrFail($id);
 
         return response()->json($evaluation);
+    }
+
+    public function myEvaluations(Request $request, EvaluationService $service)
+    {
+        $student = $request->user()->student;
+
+        return EvaluationResource::collection(
+            $service->getStudentEvaluations(
+                $student->id,
+                $request->integer('course_id') ?: null,
+                $request->string('status')->toString() ?: null,
+            )
+        );
+    }
+
+    public function myEvaluation(Request $request, Evaluation $evaluation): JsonResponse
+    {
+        $student = $request->user()->student;
+
+        abort_if(! $student, 404);
+
+        $found = $this->evaluationService->getStudentEvaluation($evaluation->id, $student->id);
+
+        abort_if(! $found, 404, 'Evaluation not found.');
+
+        return response()->json(new EvaluationResource($found));
     }
 }

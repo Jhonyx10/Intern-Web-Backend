@@ -17,7 +17,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-#[Fillable(['name', 'email', 'password', 'role_id', 'course_id', 'created_by', 'is_active', 'document_submission_alerts_seen_at'])]
+#[Fillable(['name', 'email', 'password', 'role_id', 'course_id', 'created_by', 'is_active', 'document_submission_alerts_seen_at', 'fcm_token'])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -45,9 +45,12 @@ class User extends Authenticatable
         return $this->belongsTo(Course::class);
     }
 
-    public function student()
+   /**
+     * @return HasOne<Student, $this>
+     */
+    public function student(): HasOne
     {
-        return $this->belongsTo(Student::class, 'user_id');
+        return $this->hasOne(Student::class, 'user_id');
     }
     /**
      * @return BelongsTo<User, $this>
@@ -148,6 +151,13 @@ class User extends Authenticatable
             ->whereHas('schoolYear', fn ($query) => $query->where('is_active', true))
             ->with('course')
             ->first();
+    }
+
+    public function activeCoordinatedSections(): HasMany
+    {
+        return $this->coordinatedSections()
+            ->where('is_active', true)
+            ->whereHas('schoolYear', fn ($q) => $q->where('is_active', true));
     }
 
     public function coordinatorCourse(): ?Course

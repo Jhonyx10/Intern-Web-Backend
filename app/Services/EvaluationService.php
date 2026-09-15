@@ -7,6 +7,9 @@ use App\Models\EvaluationTemplate;
 use App\Models\Student;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Kreait\Firebase\Messaging\CloudMessage;
+use Kreait\Firebase\Messaging\Notification as FirebaseNotification;
+use Kreait\Laravel\Firebase\Facades\Firebase;
 
 class EvaluationService
 {
@@ -96,6 +99,7 @@ class EvaluationService
 
                 if ($evaluation->wasRecentlyCreated) {
                     $assignedCount++;
+                    $this->sendEvaluationNotification($student, $templateId);
                 }
             }
         });
@@ -103,5 +107,67 @@ class EvaluationService
         Log::info("Bulk assigned evaluation template #{$templateId} to {$assignedCount} students in course #{$courseId}.");
 
         return $assignedCount;
+    }
+
+    /**
+     * Send a Firebase notification to the student alerting them of a new evaluation.
+     */
+    protected function sendEvaluationNotification(Student $student, int $templateId): void
+    {
+        $fcmToken = $student->user?->fcm_token;
+
+        if (! $fcmToken) {
+            return;
+        }   
+
+        $title = 'New Evaluation Assigned';
+        $body = "A new evaluation has been assigned to you. Please complete it as soon as possible.";
+
+        $message = CloudMessage::new()
+            ->withToken($fcmToken)
+            ->withNotification(FirebaseNotification::create($title, $body));
+
+        try {
+            $messaging = Firebase::messaging();
+            $messaging->send($message);
+        } catch (\Exception $e) {
+            Log::error('Failed to send evaluation FCM notification: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get all evaluations belonging to a student, optionally scoped to a course/status.
+     */
+    public function getStudentEvaluations(
+        int $studentId,
+        ?int $courseId = null,
+        ?string $status = null
+    ): \Illuminate\Database\Eloquent\Collection {
+        return Evaluation::query()
+            ->where('student_id', $studentId)
+            ->when($courseId, fn ($q) => $q->where('course_id', $courseId))
+            ->when($status, fn ($q) => $q->where('status', $status))
+            ->with([
+                'template:id,title,description',
+                'template.items' => fn ($q) => $q->orderBy('sort_order'),
+            ])
+            ->orderByRaw("FIELD(status, ?, ?)", [Evaluation::STATUS_PENDING, Evaluation::STATUS_SUBMITTED])
+            ->latest('id')
+            ->get();
+    }
+
+    /**
+     * Get a single evaluation, guarded by ownership so a student can't read someone else's.
+     */
+    public function getStudentEvaluation(int $evaluationId, int $studentId): ?Evaluation
+    {
+        return Evaluation::query()
+            ->where('id', $evaluationId)
+            ->where('student_id', $studentId)
+            ->with([
+                'template:id,title,description',
+                'template.items' => fn ($q) => $q->orderBy('sort_order'),
+            ])
+            ->first();
     }
 }

@@ -19,6 +19,9 @@ use App\Http\Controllers\Api\SettingController;
 use App\Http\Controllers\Api\DocumentsController;
 use App\Http\Controllers\Api\OjtEvaluationController;
 use App\Http\Controllers\Api\GeofenceEventController;
+use App\Http\Controllers\Api\GeofenceExcursionController;
+use App\Http\Controllers\Api\InternLocationController;
+use App\Http\Controllers\Api\InternController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function (): void {
@@ -128,26 +131,35 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
     // Intern Mobile API
     Route::prefix('intern')->group(function (): void {
-        Route::get('/progress', [\App\Http\Controllers\Api\InternController::class, 'progress']);
-        Route::get('/documents', [\App\Http\Controllers\Api\InternController::class, 'getDocuments']);
-        Route::get('/profile', [\App\Http\Controllers\Api\InternController::class, 'profile']);
-        Route::put('/password', [\App\Http\Controllers\Api\InternController::class, 'updatePassword']);
+        Route::get('/progress', [InternController::class, 'progress']);
+        Route::get('/documents', [InternController::class, 'getDocuments']);
+        Route::get('/profile', [InternController::class, 'profile']);
+        Route::put('/password', [InternController::class, 'updatePassword']);
         
-        Route::post('/documents/upload', [\App\Http\Controllers\Api\InternController::class, 'uploadDocument']);
-        Route::get('/documents/download/{id}', [\App\Http\Controllers\Api\InternController::class, 'downloadDocument']);
-
+        Route::post('/documents/upload', [InternController::class, 'uploadDocument']);
+        Route::get('/documents/download/{id}', [InternController::class, 'downloadDocument']);
+        Route::get('/evaluations', [OjtEvaluationController::class, 'myEvaluations']);
+        Route::get('/evaluations/{evaluation}', [OjtEvaluationController::class, 'myEvaluation']);
         //face enrollment
         Route::post('/face/enrollment',[MobileAuthController::class, 'enrollFace']);
         // Company Request
-        Route::post('/company/request', [\App\Http\Controllers\Api\InternController::class, 'requestCompany']);
+        Route::post('/company/request', [InternController::class, 'requestCompany']);
 
         // Time tracking
-        Route::get('/time/status', [\App\Http\Controllers\Api\InternController::class, 'timeStatus']);
-        Route::get('/time/logs', [\App\Http\Controllers\Api\InternController::class, 'timeLogs']);
-        Route::post('/time/punch', [\App\Http\Controllers\Api\InternController::class, 'timePunch']);
+        Route::get('/time/status', [InternController::class, 'timeStatus']);
+        Route::get('/time/logs', [InternController::class, 'timeLogs']);
+        Route::post('/time/punch', [InternController::class, 'timePunch']);
 
         //interns location alert tracker
         Route::post('/time/geofence-event', [GeofenceEventController::class, 'store']);
+        Route::post('/time/location', [InternLocationController::class, 'update']);
+
+        // Geofence Excursions
+        Route::get('/excursions/pending', [GeofenceExcursionController::class, 'pending']);
+        Route::post('/excursions', [GeofenceExcursionController::class, 'start']);
+        Route::post('/excursions/{id}/points', [GeofenceExcursionController::class, 'addPoint']);
+        Route::patch('/excursions/{id}', [GeofenceExcursionController::class, 'complete']);
+        Route::patch('/excursions/{id}/reason', [GeofenceExcursionController::class, 'updateReason']);
     });
 });
 
