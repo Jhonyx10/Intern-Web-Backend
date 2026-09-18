@@ -6,10 +6,15 @@ use App\Http\Controllers\Controller;
 use App\Models\CompanySchedule;
 use App\Models\Supervisor;
 use App\Models\Building;
+use App\Models\Student;
 use App\Models\BuildingAssignment;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Kreait\Firebase\Messaging\CloudMessage;
+use Kreait\Firebase\Messaging\Notification as FirebaseNotification;
+use Kreait\Laravel\Firebase\Facades\Firebase;
+use Illuminate\Support\Facades\Log;
 
 class SupervisorController extends Controller
 {
@@ -134,17 +139,25 @@ class SupervisorController extends Controller
     /**
      * Return the list of interns (students) assigned to this supervisor's company.
      */
-    public function interns(Request $request): JsonResponse
-    {
-        $supervisor = $this->getSupervisor($request);
-        if (!$supervisor || !$supervisor->company) {
-            return response()->json(['data' => []]);
-        }
+   public function interns(Request $request): JsonResponse
+{
+    $supervisor = $this->getSupervisor($request);
+    if (!$supervisor || !$supervisor->company) {
+        return response()->json(['data' => []]);
+    }
 
-        $students = $supervisor->company->students()
-            ->with(['section', 'ojtSchedule', 'timeLogs','buildings', 'ojtEvaluations.template.items'])
-            ->get()
-            ->map(fn($s) => [
+    $students = $supervisor->company->students()
+        ->wherePivot('status', 'active')
+        ->with(['section', 'ojtSchedule', 'buildings', 'ojtEvaluations.template.items'])
+        ->get()
+        ->map(function ($s) {
+            $companyStudentId = $s->pivot->id;
+
+            $totalMinutes = \App\Models\TimeLog::where('student_id', $s->id)
+                ->where('company_student_id', $companyStudentId)
+                ->sum('duration_minutes');
+
+            return [
                 'id'             => $s->id,
                 'student_number' => $s->student_number,
                 'first_name'     => $s->first_name,
@@ -153,13 +166,14 @@ class SupervisorController extends Controller
                 'is_active'      => $s->is_active,
                 'section'        => $s->section ? ['id' => $s->section->id, 'name' => $s->section->name] : null,
                 'required_hours' => $s->ojtSchedule?->required_hours ?? null,
-                'total_hours'    => round($s->timeLogs->sum('duration_minutes') / 60, 2),
-                'building_id' => $s->activeBuildings->first()?->id,
+                'total_hours'    => round($totalMinutes / 60, 2),
+                'building_id'    => $s->activeBuildings->first()?->id,
                 'ojt_evaluations' => $s->ojtEvaluations,
-            ]);
+            ];
+        });
 
-        return response()->json(['data' => $students]);
-    }
+    return response()->json(['data' => $students]);
+}
 
     /**
      * Return recent time logs (attendance) for all interns in this supervisor's company.
@@ -233,6 +247,60 @@ class SupervisorController extends Controller
         });
 
         return response()->json(['message' => 'Interns assigned successfully.']);
+    }
+
+   public function removeIntern(Request $request, Student $student): JsonResponse
+    {
+        $supervisor = $this->getSupervisor($request);
+
+        if (!$supervisor || !$supervisor->company) {
+            return response()->json(['message' => 'Supervisor or company not found.'], 404);
+        }
+
+        // Confirm this student actually belongs to the supervisor's company.
+        $isAssigned = $supervisor->company->students()
+            ->where('students.id', $student->id)
+            ->exists();
+
+        if (!$isAssigned) {
+            return response()->json(['message' => 'This intern is not assigned to your company.'], 403);
+        }
+
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'max:1000'],
+        ]);
+
+        $supervisor->company->students()->updateExistingPivot($student->id, [
+            'status'         => 'inactive',
+            'removal_reason' => $validated['reason'],
+        ]);
+
+        $this->sendTerminationNotification($student, $supervisor->company->name, $validated['reason']);
+
+        return response()->json(['message' => 'Intern removed from the internship program.']);
+    }
+
+    protected function sendTerminationNotification(Student $student, string $companyName, string $reason): void
+    {
+        $fcmToken = $student->user?->fcm_token;
+
+        if (! $fcmToken) {
+            return;
+        }
+
+        $title = 'Removed from Internship Program';
+        $body = "You have been removed from your internship at {$companyName}. Reason: {$reason}";
+
+        $message = CloudMessage::new()
+            ->withToken($fcmToken)
+            ->withNotification(FirebaseNotification::create($title, $body));
+
+        try {
+            $messaging = Firebase::messaging();
+            $messaging->send($message);
+        } catch (\Exception $e) {
+            Log::error('Failed to send intern termination FCM notification: ' . $e->getMessage());
+        }
     }
 
 }

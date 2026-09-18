@@ -101,6 +101,7 @@ class StudentController extends Controller
             'timeLogs.taskPhotos',
             'documents.documentType',
             'documents.documentRequirement',
+            'geofenceExcursions.points',
             'ojtEvaluations.template.items',
             'documents.reviewedBy'
         ])->findOrFail($id);

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Models\TimeLog;
+use App\Http\Controllers\Controller;
 use App\Services\EvaluationService;
 use Illuminate\Http\JsonResponse;
 
@@ -23,5 +24,12 @@ class TimeLogController extends Controller
             'message' => 'Time log approved successfully.',
             'evaluation_created' => $evaluation !== null,
         ]);
+    }
+
+    public function timeLogDetails($id)
+    {
+        $details = TimeLog::with(['taskPhotos', 'student'])->findOrFail($id);
+
+        return response()->json($details);
     }
 }

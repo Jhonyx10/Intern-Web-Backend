@@ -17,12 +17,20 @@ class UserProfileController extends Controller
      */
     public function updateProfile(Request $request): JsonResponse
     {
+        $user = $request->user();
+
         $request->validate([
             'name' => 'required|string|max:255',
+            'email' => 'required|email|max:255|unique:users,email,' . $user->id,
         ]);
 
-        $user = $request->user();
         $user->name = $request->input('name');
+        
+        if ($user->email !== $request->input('email')) {
+            $user->email = $request->input('email');
+            $user->email_verified_at = null;
+        }
+
         $user->save();
 
         return response()->json([
@@ -31,6 +39,7 @@ class UserProfileController extends Controller
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
+                'email_verified_at' => $user->email_verified_at,
                 'is_active' => $user->is_active,
                 'role' => $user->role ? [
                     'id' => $user->role->id,

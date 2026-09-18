@@ -6,10 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\CompanyRequest;
 use App\Models\Role;
+use App\Models\Student;
 use App\Models\Supervisor;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
@@ -226,13 +228,26 @@ class CompanyController extends Controller
 
     /**
      * Assign a student to this company.
+     * Blocks assignment if the student already has an active placement anywhere.
      */
     public function assignStudent(Request $request, Company $company): JsonResponse
     {
         $validated = $request->validate([
-            'student_id' => ['required', 'integer', 'exists:students,id'],
+            'student_id'   => ['required', 'integer', 'exists:students,id'],
             'supervisor_id' => ['nullable', 'integer', 'exists:supervisors,id'],
         ]);
+
+        // Guard: check for an existing active company placement
+        $hasActivePlacement = DB::table('company_student')
+            ->where('student_id', $validated['student_id'])
+            ->where('status', 'active')
+            ->exists();
+
+        if ($hasActivePlacement) {
+            return response()->json([
+                'message' => 'This student is already actively assigned to a company. Please remove them from their current company before re-assigning.',
+            ], 422);
+        }
 
         $user = $request->user();
         $courseId = null;
@@ -242,14 +257,56 @@ class CompanyController extends Controller
             $courseId = $user->coordinatorCourse()->id;
         }
 
-        $company->students()->syncWithoutDetaching([
-            $validated['student_id'] => [
-                'course_id' => $courseId,
-                'supervisor_id' => $validated['supervisor_id'] ?? null,
-            ]
+        $company->students()->attach($validated['student_id'], [
+            'course_id'    => $courseId,
+            'supervisor_id' => $validated['supervisor_id'] ?? null,
+            'status'       => 'active',
         ]);
 
         return response()->json(['message' => 'Student successfully assigned to the company.']);
+    }
+
+    /**
+     * Remove (deactivate) a student from this company — supervisor only.
+     * Stores a mandatory reason. Does NOT delete the history row.
+     */
+    public function removeStudent(Request $request, Company $company): JsonResponse
+    {
+        // Only supervisors may call this endpoint
+        $user = $request->user();
+        if (! $user || ! $user->hasRole('supervisor')) {
+            return response()->json(['message' => 'Only supervisors can remove interns from a company.'], 403);
+        }
+
+        // Make sure this supervisor actually belongs to the target company
+        $supervisor = \App\Models\Supervisor::where('user_id', $user->id)
+            ->where('company_id', $company->id)
+            ->first();
+
+        if (! $supervisor) {
+            return response()->json(['message' => 'You are not a supervisor of this company.'], 403);
+        }
+
+        $validated = $request->validate([
+            'student_id'     => ['required', 'integer', 'exists:students,id'],
+            'removal_reason' => ['required', 'string', 'max:1000'],
+        ]);
+
+        $updated = DB::table('company_student')
+            ->where('company_id', $company->id)
+            ->where('student_id', $validated['student_id'])
+            ->where('status', 'active')
+            ->update([
+                'status'         => 'inactive',
+                'removal_reason' => $validated['removal_reason'],
+                'updated_at'     => now(),
+            ]);
+
+        if (! $updated) {
+            return response()->json(['message' => 'No active assignment found for this student in this company.'], 404);
+        }
+
+        return response()->json(['message' => 'Student removed from the company successfully.']);
     }
 
     /**

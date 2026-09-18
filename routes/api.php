@@ -22,6 +22,8 @@ use App\Http\Controllers\Api\GeofenceEventController;
 use App\Http\Controllers\Api\GeofenceExcursionController;
 use App\Http\Controllers\Api\InternLocationController;
 use App\Http\Controllers\Api\InternController;
+use App\Http\Controllers\Api\TimeLogController;
+use App\Http\Controllers\Api\VerificationController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function (): void {
@@ -32,6 +34,8 @@ Route::prefix('auth')->group(function (): void {
     Route::middleware('auth:sanctum')->group(function (): void {
         Route::post('/logout', [MobileAuthController::class, 'logout']);
         Route::get('/me', [StaffAuthController::class, 'me']);
+        Route::post('/email/verification-notification', [VerificationController::class, 'sendVerification']);
+        Route::post('/email/verify', [VerificationController::class, 'verifyCode']);
     });
 });
 
@@ -51,6 +55,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/companies/{company}/approve', [CompanyController::class, 'approvePending']);
     Route::post('/companies/{company}/reject', [CompanyController::class, 'rejectPending']);
     Route::post('/companies/{company}/assign-student', [CompanyController::class, 'assignStudent']);
+    Route::post('/companies/{company}/remove-student', [CompanyController::class, 'removeStudent']);
     Route::post('/companies/{company}/supervisors', [CompanyController::class, 'storeSupervisor']);
     Route::get('/companies/{company}', [CompanyController::class, 'show']);
     // Buildings (nested under company)
@@ -65,7 +70,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::apiResource('roles',RolesController::class);
     Route::apiResource('coordinators',CoordinatorController::class);
     Route::apiResource('students', StudentController::class);
-
+    Route::get('/time-logs/{id}/details', [TimeLogController::class, 'timeLogDetails']);
     Route::get('/company-requests', [CompanyRequestController::class, 'index']);
     Route::post('/company-requests/{companyRequest}/accept', [CompanyRequestController::class, 'coordinatorAccept']);
 
@@ -122,7 +127,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::put('/supervisor/schedules/{schedule}', [SupervisorController::class, 'updateSchedule']);
     Route::delete('/supervisor/schedules/{schedule}', [SupervisorController::class, 'destroySchedule']);
     Route::post('/buildings/{building}/assign-interns', [SupervisorController::class, 'assignInterns']);
-
+    Route::post('/supervisor/interns/{student}/remove', [SupervisorController::class, 'removeIntern']);  
+     
     // User Profile & Department Settings
     Route::put('/user/profile', [UserProfileController::class, 'updateProfile']);
     Route::put('/user/password', [UserProfileController::class, 'updatePassword']);
@@ -134,6 +140,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('/progress', [InternController::class, 'progress']);
         Route::get('/documents', [InternController::class, 'getDocuments']);
         Route::get('/profile', [InternController::class, 'profile']);
+        Route::put('/account/email', [InternController::class, 'updateEmail']);
         Route::put('/password', [InternController::class, 'updatePassword']);
         
         Route::post('/documents/upload', [InternController::class, 'uploadDocument']);
@@ -149,7 +156,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('/time/status', [InternController::class, 'timeStatus']);
         Route::get('/time/logs', [InternController::class, 'timeLogs']);
         Route::post('/time/punch', [InternController::class, 'timePunch']);
-
+        Route::post('/time/logs/{timeLogId}/task-update', [InternController::class, 'taskUpdate']);
+        Route::get('/time/logs/{timeLogId}/task-checker', [InternController::class, 'taskChecker']);
         //interns location alert tracker
         Route::post('/time/geofence-event', [GeofenceEventController::class, 'store']);
         Route::post('/time/location', [InternLocationController::class, 'update']);

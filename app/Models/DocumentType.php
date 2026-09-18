@@ -14,6 +14,7 @@ class DocumentType extends Model
         'code',
         'name',
         'is_required',
+        'recurrence',
     ];
 
     /**

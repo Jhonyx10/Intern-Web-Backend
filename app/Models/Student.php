@@ -76,7 +76,9 @@ class Student extends Model
      */
     public function companies(): BelongsToMany
     {
-        return $this->belongsToMany(Company::class)->withPivot(['supervisor_id', 'course_id'])->withTimestamps();
+        return $this->belongsToMany(Company::class)
+            ->withPivot(['supervisor_id', 'course_id', 'status', 'removal_reason'])
+            ->withTimestamps();
     }
 
      public function buildings(): BelongsToMany
@@ -164,5 +166,13 @@ class Student extends Model
     {
         return $this->hasOne(Evaluation::class)
             ->where('status', Evaluation::STATUS_PENDING);
+    }
+
+    /**
+     * @return HasMany<GeofenceExcursion, $this>
+     */
+    public function geofenceExcursions(): HasMany
+    {
+        return $this->hasMany(GeofenceExcursion::class, 'intern_id');
     }
 }

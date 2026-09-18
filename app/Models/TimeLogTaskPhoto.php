@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Storage;
 
 class TimeLogTaskPhoto extends Model
 {
@@ -35,6 +36,10 @@ class TimeLogTaskPhoto extends Model
         ];
     }
 
+    protected $appends = [
+        'file_url',
+    ];
+    
     /**
      * @return BelongsTo<TimeLog, $this>
      */
@@ -59,5 +64,20 @@ class TimeLogTaskPhoto extends Model
     public function isSubmitted(): bool
     {
         return $this->status === self::STATUS_SUBMITTED;
+    }
+
+    public function getFileUrlAttribute(): ?string
+    {
+        if (! $this->file_path) {
+            return null;
+        }
+ 
+        $disk = Storage::disk('public');
+ 
+        if (! $disk->exists($this->file_path)) {
+            return null;
+        }
+ 
+        return $disk->url($this->file_path);
     }
 }

@@ -127,7 +127,6 @@ class DocumentsController extends Controller
             'document_type_id' => ['required', 'integer', 'exists:document_types,id'],
             'title' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
-            'deadline_at' => ['required', 'date'],
             'accepted_file_types' => ['nullable', 'string'],
             'is_active' => ['nullable', 'boolean'],
         ]);
@@ -154,6 +153,7 @@ class DocumentsController extends Controller
             'code' => ['required', 'string', 'max:50', 'unique:document_types,code'],
             'name' => ['required', 'string', 'max:255'],
             'is_required' => ['required', 'boolean'],
+            'recurrence' => ['nullable', Rule::in(['none', 'daily', 'weekly'])],
         ]);
 
         $documentType = $this->documentService->createDocumentType($validated);

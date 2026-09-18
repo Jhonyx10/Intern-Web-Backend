@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Student;
 use App\Models\TimeLog;
+use App\Models\TimeLogTaskPhoto;
 use App\Services\PythonMicroservice;
 use App\Support\FaceEmbedding;
 use App\Support\FaceMatcher;
@@ -75,6 +76,17 @@ class InternController extends Controller
 
         return $data;
     }
+    // --------------------------
+    //helper
+    // ----------------
+
+    private function activeCompanyStudentId(Student $student): ?int
+    {
+        return \Illuminate\Support\Facades\DB::table('company_student')
+            ->where('student_id', $student->id)
+            ->where('status', 'active')
+            ->value('id');
+    }
 
     // -------------------------------------------------------------------------
     // Progress
@@ -97,7 +109,20 @@ class InternController extends Controller
         $timeLogCount    = $student->timeLogs()->count();
         $schedule        = $student->ojtSchedule;
 
-        $company         = $student->companies()->first();
+        $activePlacement = $student->companies()->wherePivot('status', 'active')->first();
+        $latestPlacement = $activePlacement
+            ?? $student->companies()->orderByDesc('company_student.updated_at')->first();
+
+        $placementStatus = $activePlacement
+            ? 'active'
+            : ($latestPlacement ? 'removed' : 'unassigned');
+
+        $removalReason = (!$activePlacement && $latestPlacement)
+            ? $latestPlacement->pivot->removal_reason
+            : null;
+
+        $company = $activePlacement ?: $latestPlacement; // keep showing last company even if removed, for context
+
         $companySchedule = null;
         if ($company) {
             $companySchedule = \App\Models\CompanySchedule::where('company_id', $company->id)
@@ -183,6 +208,8 @@ class InternController extends Controller
                 'radius_meters' => (float)$company->geofence_radius_meters,
                 'geofence_polygon' => $company->geofence_polygon
             ] : null,
+                    'placement_status' => $placementStatus,
+                    'removal_reason'   => $removalReason,
             'progress' => [
                 'required_hours'               => $requiredHours,
                 'rendered_hours'               => $renderedHours,
@@ -233,10 +260,13 @@ class InternController extends Controller
             $todayMinutes += $openLog->time_in->diffInMinutes(Carbon::now());
         }
 
-        $canPunchIn  = $faceEnrolled && $openLog === null;
-        $canPunchOut = $faceEnrolled && $openLog !== null;
+        $activePlacement = $student->companies()->wherePivot('status', 'active')->first();
+        $isRemoved = !$activePlacement && $student->companies()->exists();
 
-        $company    = $student->companies()->first();
+        $company = $activePlacement;
+
+        $canPunchIn  = $faceEnrolled && $openLog === null && !$isRemoved;
+        $canPunchOut = $faceEnrolled && $openLog !== null && !$isRemoved;
         
         // Lookup company schedule
         $companySchedule = null;
@@ -316,6 +346,7 @@ class InternController extends Controller
             'geofence'         => $geofence,
             'lunch_break'      => $lunchBreakInfo,
             'today_attendance' => $todayAttendance,
+            'placement_status' => $isRemoved ? 'removed' : ($company ? 'active' : 'unassigned'),
         ]);
     }
 
@@ -420,6 +451,7 @@ class InternController extends Controller
 
             $log = $student->timeLogs()->create([
                 'time_in'             => $now,
+                'company_student_id'  => $this->activeCompanyStudentId($student),
                 'latitude_in'         => $latitude,
                 'longitude_in'        => $longitude,
                 'verification_method' => 'facial_recognition',
@@ -498,6 +530,33 @@ class InternController extends Controller
                 'task_note'        => $request->input('task_note'),
             ]);
 
+            // --- AUTO-DEACTIVATE COMPANY PLACEMENT ON OJT COMPLETION ---
+            $course        = $student->section?->course;
+            $requiredHours = $course ? (float) $course->required_hours : 0;
+
+            if ($requiredHours > 0) {
+                $activeCompanyStudentId = $this->activeCompanyStudentId($student);
+
+$totalMinutes = $activeCompanyStudentId
+    ? (float) $student->timeLogs()->where('company_student_id', $activeCompanyStudentId)->sum('duration_minutes')
+    : 0.0;
+                $renderedHours = $totalMinutes / 60;
+
+                if ($renderedHours >= $requiredHours) {
+                    \Illuminate\Support\Facades\DB::table('company_student')
+                        ->where('student_id', $student->id)
+                        ->where('status', 'active')
+                        ->update([
+                            'status'         => 'inactive',
+                            'removal_reason' => 'internship_completed',
+                            'updated_at'     => now(),
+                        ]);
+
+                    Log::info("Student #{$student->id} reached 100% OJT hours ({$renderedHours}/{$requiredHours}). Company placement deactivated.");
+                }
+            }
+            // --- END AUTO-DEACTIVATE ---
+
             $openLog->load('taskPhotos');
 
             return response()->json([
@@ -525,7 +584,8 @@ class InternController extends Controller
             return response()->json(['message' => 'Student record not found.'], 404);
         }
 
-        $company    = $student->companies()->first();
+        $company    = $student->companies()->wherePivot('status', 'active')->first();
+
         $supervisor = null;
 
         if ($company) {
@@ -554,6 +614,7 @@ class InternController extends Controller
                 'id'    => $user->id,
                 'name'  => $user->name,
                 'email' => $user->email,
+                'email_verified_at' => $user->email_verified_at,
             ],
             'section' => $section ? [
                 'id'   => $section->id,
@@ -571,6 +632,37 @@ class InternController extends Controller
                 ] : null,
                 'department' => null, // extend when departments are modelled
                 'supervisor' => $supervisor,
+            ],
+        ]);
+    }
+
+    // -------------------------------------------------------------------------
+    // Update Profile Email
+    // -------------------------------------------------------------------------
+
+    public function updateEmail(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'email'            => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
+            'current_password' => ['required', 'string'],
+        ]);
+
+        $user = $request->user();
+
+        if (!Hash::check($validated['current_password'], $user->password)) {
+            throw ValidationException::withMessages([
+                'current_password' => ['The current password is incorrect.'],
+            ]);
+        }
+
+        $user->update(['email' => $validated['email']]);
+
+        return response()->json([
+            'message' => 'Email updated successfully.',
+            'user'    => [
+                'id'    => $user->id,
+                'name'  => $user->name,
+                'email' => $user->email,
             ],
         ]);
     }
@@ -604,7 +696,7 @@ class InternController extends Controller
     // Document Upload & Fetch
     // -------------------------------------------------------------------------
 
-    public function getDocuments(Request $request): JsonResponse
+     public function getDocuments(Request $request): JsonResponse
     {
         $student = $this->resolveStudent($request);
         if (!$student) {
@@ -612,47 +704,67 @@ class InternController extends Controller
         }
 
         $courseId = $student->section?->course_id;
-        
-        $requirements = $courseId ? \App\Models\Course::find($courseId)->documentRequirements()->get() : collect();
 
-        $submitted = \App\Models\StudentDocument::where('student_id', $student->id)->get()->keyBy('document_requirement_id');
+        $requirements = $courseId
+            ? \App\Models\Course::find($courseId)->documentRequirements()->with('documentType')->get()
+            : collect();
+
+        $submitted = \App\Models\StudentDocument::where('student_id', $student->id)
+            ->orderByDesc('period_start')
+            ->orderByDesc('uploaded_at')
+            ->get()
+            ->groupBy('document_requirement_id');
 
         $data = $requirements->map(function ($req) use ($submitted) {
-            $sub = $submitted->get($req->id);
-            
+            $subsForReq = $submitted->get($req->id, collect());
+            $current = $subsForReq->first(); // newest, thanks to the ordering above
+            $recurrence = $req->documentType->recurrence ?? 'none';
+
             $status = 'pending';
-            $uri = null;
-            
-            if ($sub) {
-                // Determine raw status value
-                $status = is_object($sub->review_status) ? $sub->review_status->value : $sub->review_status;
+            if ($current) {
+                $status = is_object($current->review_status) ? $current->review_status->value : $current->review_status;
                 if ($status === 'pending') {
-                    $status = 'uploaded'; // UI uses 'uploaded'
+                    $status = 'uploaded';
                 }
-                $uri = $sub->file_path ? asset('storage/' . ltrim($sub->file_path, '/')) : null;
             }
 
             return [
-                'id'     => (string) $req->id,
-                'title'  => $req->title,
-                'status' => $status,
-                'uri'    => $sub ? url('/api/intern/documents/download/' . $req->id) : null,
+                'id'          => (string) $req->id,
+                'title'       => $req->title,
+                'status'      => $status,
+                'recurrence'  => $recurrence,
+                'period_start'=> $current?->period_start,
+                'uri'         => $current ? url('/api/intern/documents/download/' . $req->id) : null,
+                'history'     => $recurrence !== 'none'
+                    ? $subsForReq->skip(1)->values()->map(fn ($s) => [
+                        'period_start' => $s->period_start,
+                        'status'       => is_object($s->review_status) ? $s->review_status->value : $s->review_status,
+                        'uri'          => url('/api/intern/documents/download/' . $req->id . '?period=' . $s->period_start),
+                    ])
+                    : [],
             ];
         });
 
         return response()->json($data);
     }
 
-    public function downloadDocument(int $id, Request $request)
+   public function downloadDocument(int $id, Request $request)
     {
         $student = $this->resolveStudent($request);
         if (!$student) {
             return response()->json(['message' => 'Student record not found.'], 404);
         }
 
-        $sub = \App\Models\StudentDocument::where('student_id', $student->id)
-            ->where('document_requirement_id', $id)
-            ->first();
+        $query = \App\Models\StudentDocument::where('student_id', $student->id)
+            ->where('document_requirement_id', $id);
+
+        if ($request->filled('period')) {
+            $query->where('period_start', $request->query('period'));
+        } else {
+            $query->orderByDesc('period_start')->orderByDesc('uploaded_at');
+        }
+
+        $sub = $query->first();
 
         if (!$sub || !$sub->file_path) {
             return response()->json(['message' => 'File not found.'], 404);
@@ -660,7 +772,6 @@ class InternController extends Controller
 
         $fullPath = storage_path('app/public/' . ltrim($sub->file_path, '/'));
         if (!file_exists($fullPath)) {
-            // Fallback for storage/app root
             $fullPath = storage_path('app/' . ltrim($sub->file_path, '/'));
         }
 
@@ -687,10 +798,17 @@ class InternController extends Controller
             return response()->json(['message' => 'Student record not found.'], 404);
         }
 
-        $requirement = \App\Models\DocumentRequirement::find($request->document_id);
+        $requirement = \App\Models\DocumentRequirement::with('documentType')->find($request->document_id);
         if (!$requirement) {
             return response()->json(['message' => 'Document requirement not found.'], 404);
         }
+
+        $recurrence = $requirement->documentType->recurrence ?? 'none';
+        $periodStart = match ($recurrence) {
+            'weekly' => Carbon::now()->startOfWeek()->toDateString(),
+            'daily'  => Carbon::now()->startOfDay()->toDateString(),
+            default  => null,
+        };
 
         $file = $request->file('file');
         $path = $file->store('student_documents', 'public');
@@ -699,6 +817,7 @@ class InternController extends Controller
             [
                 'student_id'              => $student->id,
                 'document_requirement_id' => $requirement->id,
+                'period_start'            => $periodStart,
             ],
             [
                 'file_path'         => $path,
@@ -707,6 +826,7 @@ class InternController extends Controller
                 'mime_type'         => $file->getMimeType(),
                 'uploaded_at'       => Carbon::now(),
                 'review_status'     => \App\Support\DocumentReviewStatus::Pending,
+                'rejection_reason'  => null,
             ]
         );
 
@@ -738,6 +858,102 @@ class InternController extends Controller
             'message' => 'Company request submitted successfully.',
             'request' => $companyRequest,
         ], 201);
+    }
+
+    // -------------------------------------------------------------------------
+// Time: Task note & photo update (for an open or recent time log)
+// -------------------------------------------------------------------------
+
+public function taskChecker(int $timeLogId, Request $request): JsonResponse
+{
+    $student = $this->resolveStudent($request);
+
+    if (!$student) {
+        return response()->json(['message' => 'Student record not found.'], 404);
+    }
+
+    $timeLog = $student->timeLogs()->with('taskPhotos')->where('id', $timeLogId)->first();
+
+    if (!$timeLog) {
+        return response()->json(['message' => 'Time log not found.'], 404);
+    }
+
+    $isToday = $timeLog->time_in && $timeLog->time_in->isToday();
+
+    if (!$isToday) {
+        return response()->json([
+            'time_log_id'  => $timeLog->id,
+            'is_today'     => false,
+            'has_note'     => filled($timeLog->task_note),
+            'has_photos'   => $timeLog->taskPhotos->isNotEmpty(),
+            'needs_update' => false,
+            'message'      => 'This time log is not from today; no reminder needed.',
+        ]);
+    }
+
+    $hasNote = filled($timeLog->task_note);
+    $hasPhotos = $timeLog->taskPhotos->isNotEmpty();
+    $needsUpdate = !$hasNote || !$hasPhotos;
+
+    return response()->json([
+        'time_log_id'  => $timeLog->id,
+        'is_today'     => true,
+        'has_note'     => $hasNote,
+        'has_photos'   => $hasPhotos,
+        'needs_update' => $needsUpdate,
+        'message'      => $needsUpdate
+            ? 'Please add a task note and photo(s) for this time log.'
+            : 'Task note and photos are complete.',
+    ]);
+}
+
+    public function taskUpdate(Request $request, int $timeLogId): JsonResponse
+    {
+        $request->validate([
+            'note'     => ['nullable', 'string', 'max:1000'],
+            'files'    => ['nullable', 'array'],
+            'files.*'  => ['file', 'image', 'max:5120'], // 5MB per photo, images only
+        ]);
+
+        $student = $this->resolveStudent($request);
+
+        if (!$student) {
+            return response()->json(['message' => 'Student record not found.'], 404);
+        }
+
+        $timeLog = $student->timeLogs()->where('id', $timeLogId)->first();
+
+        if (!$timeLog) {
+            return response()->json(['message' => 'Time log not found.'], 404);
+        }
+
+        if ($request->has('note')) {
+            $timeLog->update(['task_note' => $request->input('note')]);
+        }
+
+        if ($request->hasFile('files')) {
+            foreach ($request->file('files') as $file) {
+                $path = $file->store('task_photos', 'public');
+
+                TimeLogTaskPhoto::create([
+                    'time_log_id'       => $timeLog->id,
+                    'student_id'        => $student->id,
+                    'file_path'         => $path,
+                    'original_filename' => $file->getClientOriginalName(),
+                    'file_size'         => $file->getSize(),
+                    'mime_type'         => $file->getMimeType(),
+                    'status'            => TimeLogTaskPhoto::STATUS_SUBMITTED,
+                    'submitted_at'      => Carbon::now(),
+                ]);
+            }
+        }
+
+        $timeLog->load('taskPhotos');
+
+        return response()->json([
+            'message' => 'Task updated successfully.',
+            'log'     => $this->formatLogSegment($timeLog, withPhotos: true),
+        ]);
     }
 }
 

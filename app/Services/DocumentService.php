@@ -16,7 +16,8 @@ class DocumentService
         return DocumentType::create([
             'code' => $data['code'],
             'name' => $data['name'],
-            'is_required' => $data['is_required']
+            'is_required' => $data['is_required'],
+            'recurrence' => $data['recurrence'] ?? 'none',
         ]);
     }
 
