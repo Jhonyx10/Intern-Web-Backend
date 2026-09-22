@@ -27,9 +27,22 @@ class StudentController extends Controller
     /**
      * Display a listing of the students.
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $students = Student::with(['section'])->paginate(5);
+        $unassigned = $request->boolean('unassigned');
+        $defaultPerPage = $unassigned ? 50 : 5;
+        $perPage = min(100, max(1, (int) $request->input('per_page', $defaultPerPage)));
+
+        $query = Student::with(['section']);
+
+        if ($unassigned) {
+            $query->whereDoesntHave('companies', function ($q) {
+                $q->where('company_student.status', 'active');
+            });
+        }
+
+        $students = $query->paginate($perPage);
+
         return response()->json(['data' => $students]);
     }
 

@@ -227,25 +227,31 @@ class CompanyController extends Controller
     }
 
     /**
-     * Assign a student to this company.
-     * Blocks assignment if the student already has an active placement anywhere.
+     * Assign one or more students to this company.
+     * Blocks assignment if any student already has an active placement anywhere.
      */
     public function assignStudent(Request $request, Company $company): JsonResponse
     {
         $validated = $request->validate([
-            'student_id'   => ['required', 'integer', 'exists:students,id'],
+            'student_ids'   => ['required', 'array', 'min:1'],
+            'student_ids.*' => ['integer', 'exists:students,id'],
             'supervisor_id' => ['nullable', 'integer', 'exists:supervisors,id'],
         ]);
 
-        // Guard: check for an existing active company placement
-        $hasActivePlacement = DB::table('company_student')
-            ->where('student_id', $validated['student_id'])
-            ->where('status', 'active')
-            ->exists();
+        $studentIds = array_values(array_unique($validated['student_ids']));
 
-        if ($hasActivePlacement) {
+        // Guard: fail the whole request if any student already has an active placement
+        $alreadyAssigned = DB::table('company_student')
+            ->whereIn('student_id', $studentIds)
+            ->where('status', 'active')
+            ->pluck('student_id')
+            ->unique()
+            ->values();
+
+        if ($alreadyAssigned->isNotEmpty()) {
             return response()->json([
-                'message' => 'This student is already actively assigned to a company. Please remove them from their current company before re-assigning.',
+                'message' => 'One or more students are already actively assigned to a company. Please remove them from their current company before re-assigning.',
+                'student_ids' => $alreadyAssigned,
             ], 422);
         }
 
@@ -257,13 +263,19 @@ class CompanyController extends Controller
             $courseId = $user->coordinatorCourse()->id;
         }
 
-        $company->students()->attach($validated['student_id'], [
-            'course_id'    => $courseId,
+        $pivot = [
+            'course_id'     => $courseId,
             'supervisor_id' => $validated['supervisor_id'] ?? null,
-            'status'       => 'active',
-        ]);
+            'status'        => 'active',
+        ];
 
-        return response()->json(['message' => 'Student successfully assigned to the company.']);
+        DB::transaction(function () use ($company, $studentIds, $pivot) {
+            foreach ($studentIds as $studentId) {
+                $company->students()->attach($studentId, $pivot);
+            }
+        });
+
+        return response()->json(['message' => 'Student(s) successfully assigned to the company.']);
     }
 
     /**
