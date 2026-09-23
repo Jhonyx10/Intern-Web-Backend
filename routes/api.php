@@ -127,7 +127,9 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::put('/supervisor/schedules/{schedule}', [SupervisorController::class, 'updateSchedule']);
     Route::delete('/supervisor/schedules/{schedule}', [SupervisorController::class, 'destroySchedule']);
     Route::post('/buildings/{building}/assign-interns', [SupervisorController::class, 'assignInterns']);
-    Route::post('/supervisor/interns/{student}/remove', [SupervisorController::class, 'removeIntern']);  
+    Route::post('/supervisor/interns/{student}/remove', [SupervisorController::class, 'removeIntern']);
+    Route::get('/supervisor/interns/{student}', [SupervisorController::class, 'internDetail']);
+
      
     // User Profile & Department Settings
     Route::put('/user/profile', [UserProfileController::class, 'updateProfile']);

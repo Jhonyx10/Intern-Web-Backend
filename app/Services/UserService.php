@@ -82,8 +82,39 @@ class UserService
             $query->where('created_by', $actor->id);
         }
 
-        return $query->findOrFail($id);
+        $coordinator = $query
+            ->with([
+                'course',
+                'coordinatedSections.course',
+                'coordinatedSections.courseMajor',
+                'coordinatedSections.schoolYear',
+                'coordinatedSections.students',
+            ])
+            ->findOrFail($id);
+
+        $sections = $coordinator->coordinatedSections->map(fn ($s) => [
+            'id'             => $s->id,
+            'name'           => $s->name,
+            'code'           => $s->code,
+            'course'         => $s->course ? ['id' => $s->course->id, 'code' => $s->course->code, 'name' => $s->course->name] : null,
+            'course_major'   => $s->courseMajor ? ['id' => $s->courseMajor->id, 'name' => $s->courseMajor->name] : null,
+            'school_year'    => $s->schoolYear ? ['id' => $s->schoolYear->id, 'name' => $s->schoolYear->name, 'is_active' => $s->schoolYear->is_active] : null,
+            'students_count' => $s->students->count(),
+            'is_active'      => $s->is_active,
+        ]);
+
+        return response()->json([
+            'id'       => $coordinator->id,
+            'name'     => $coordinator->name,
+            'email'    => $coordinator->email,
+            'is_active' => $coordinator->is_active,
+            'course'   => $coordinator->course
+                ? ['id' => $coordinator->course->id, 'code' => $coordinator->course->code, 'name' => $coordinator->course->name]
+                : null,
+            'sections' => $sections,
+        ]);
     }
+
 
     public function createCoordinator($data)
     {

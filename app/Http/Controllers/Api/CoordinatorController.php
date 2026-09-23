@@ -19,9 +19,9 @@ class CoordinatorController extends Controller
         return $this->userService->getAllCoordinators();
     }
 
-    public function show(User $user)
+    public function show(User $coordinator)
     {
-        return $this->userService->getCoordinatorById($user->id);
+        return $this->userService->getCoordinatorById($coordinator->id);
     }
 
     public function store(Request $request)
@@ -44,13 +44,13 @@ class CoordinatorController extends Controller
         return $this->userService->createCoordinator($validated);
     }
 
-    public function update(Request $request, User $user)
+    public function update(Request $request, User $coordinator)
     {
-        return $this->userService->updateCoordinator($user->id, $request->all());
+        return $this->userService->updateCoordinator($coordinator->id, $request->all());
     }
 
-    public function destroy(User $user)
+    public function destroy(User $coordinator)
     {
-        return $this->userService->deleteCoordinator($user->id);
+        return $this->userService->deleteCoordinator($coordinator->id);
     }
 }

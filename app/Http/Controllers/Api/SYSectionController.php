@@ -17,7 +17,12 @@ class SYSectionController extends Controller
 
     public function indexSchoolYears()
     {
-        $schoolYears = SchoolYear::with(['sections.course', 'sections.courseMajor'])
+        $schoolYears = SchoolYear::with([
+                'sections.course',
+                'sections.courseMajor',
+                'sections.coordinator',
+                'sections.students',
+            ])
             ->orderByDesc('is_active')
             ->orderByDesc('start_date')
             ->get()
@@ -29,9 +34,16 @@ class SYSectionController extends Controller
                     'end_date'   => $sy->end_date?->toDateString(),
                     'is_active'  => $sy->is_active,
                     'sections'   => $sy->sections->map(fn ($s) => [
-                        'id'   => $s->id,
-                        'name' => $s->name,
-                        'code' => $s->code,
+                        'id'           => $s->id,
+                        'name'         => $s->name,
+                        'code'         => $s->code,
+                        'course_major' => $s->courseMajor
+                            ? ['id' => $s->courseMajor->id, 'name' => $s->courseMajor->name]
+                            : null,
+                        'coordinator'  => $s->coordinator
+                            ? ['id' => $s->coordinator->id, 'name' => $s->coordinator->name]
+                            : null,
+                        'students_count' => $s->students->count(),
                     ]),
                 ];
             });

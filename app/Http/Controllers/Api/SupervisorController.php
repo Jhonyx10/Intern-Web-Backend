@@ -280,6 +280,78 @@ class SupervisorController extends Controller
         return response()->json(['message' => 'Intern removed from the internship program.']);
     }
 
+    /**
+     * Return detail for a single intern: info, company schedules, and their time logs.
+     */
+    public function internDetail(Request $request, Student $student): JsonResponse
+    {
+        $supervisor = $this->getSupervisor($request);
+
+        if (!$supervisor || !$supervisor->company) {
+            return response()->json(['message' => 'Supervisor or company not found.'], 404);
+        }
+
+        // Confirm student belongs to this supervisor's company (active assignment)
+        $pivot = $supervisor->company->students()
+            ->wherePivot('status', 'active')
+            ->where('students.id', $student->id)
+            ->first()?->pivot;
+
+        if (!$pivot) {
+            return response()->json(['message' => 'Intern not found in your company.'], 403);
+        }
+
+        $companyStudentId = $pivot->id;
+
+        // Time logs scoped to this company assignment
+        $logs = \App\Models\TimeLog::where('student_id', $student->id)
+            ->where('company_student_id', $companyStudentId)
+            ->orderByDesc('time_in')
+            ->get()
+            ->map(fn($log) => [
+                'id'                  => $log->id,
+                'time_in'             => $log->time_in?->toIso8601String(),
+                'time_out'            => $log->time_out?->toIso8601String(),
+                'duration_minutes'    => $log->duration_minutes,
+                'task_note'           => $log->task_note,
+                'verification_method' => $log->verification_method,
+            ]);
+
+        $totalMinutes = $logs->sum('duration_minutes');
+
+        // Company schedules
+        $schedules = CompanySchedule::where('company_id', $supervisor->company_id)
+            ->orderBy('start_date', 'asc')
+            ->get()
+            ->map(fn($s) => [
+                'id'           => $s->id,
+                'start_date'   => $s->start_date,
+                'time_in'      => $s->time_in,
+                'lunch_break'  => $s->lunch_break,
+                'time_out'     => $s->time_out,
+            ]);
+
+        $student->loadMissing(['section', 'ojtSchedule']);
+
+        return response()->json([
+            'data' => [
+                'id'             => $student->id,
+                'student_number' => $student->student_number,
+                'first_name'     => $student->first_name,
+                'middle_name'    => $student->middle_name,
+                'last_name'      => $student->last_name,
+                'is_active'      => $student->is_active,
+                'section'        => $student->section
+                    ? ['id' => $student->section->id, 'name' => $student->section->name]
+                    : null,
+                'required_hours' => $student->ojtSchedule?->required_hours ?? null,
+                'total_hours'    => round($totalMinutes / 60, 2),
+                'schedules'      => $schedules,
+                'time_logs'      => $logs,
+            ]
+        ]);
+    }
+
     protected function sendTerminationNotification(Student $student, string $companyName, string $reason): void
     {
         $fcmToken = $student->user?->fcm_token;
