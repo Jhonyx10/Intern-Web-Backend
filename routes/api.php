@@ -129,6 +129,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/buildings/{building}/assign-interns', [SupervisorController::class, 'assignInterns']);
     Route::post('/supervisor/interns/{student}/remove', [SupervisorController::class, 'removeIntern']);
     Route::get('/supervisor/interns/{student}', [SupervisorController::class, 'internDetail']);
+    Route::patch('/supervisor/schedule-requests/{ojtSchedule}/status', [SupervisorController::class, 'updateScheduleRequestStatus']);
 
      
     // User Profile & Department Settings
@@ -154,9 +155,14 @@ Route::middleware('auth:sanctum')->group(function (): void {
         // Company Request
         Route::post('/company/request', [InternController::class, 'requestCompany']);
 
+        // Schedule Request
+        Route::post('/schedule/request', [InternController::class, 'requestSchedule']);
+        Route::get('/schedule/requests', [InternController::class, 'getScheduleRequests']);
+
         // Time tracking
         Route::get('/time/status', [InternController::class, 'timeStatus']);
         Route::get('/time/logs', [InternController::class, 'timeLogs']);
+        Route::get('/time/logs/{timeLogId}', [InternController::class, 'timeLogDetail']);
         Route::post('/time/punch', [InternController::class, 'timePunch']);
         Route::post('/time/logs/{timeLogId}/task-update', [InternController::class, 'taskUpdate']);
         Route::get('/time/logs/{timeLogId}/task-checker', [InternController::class, 'taskChecker']);

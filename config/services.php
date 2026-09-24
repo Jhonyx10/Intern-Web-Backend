@@ -43,5 +43,8 @@ return [
         'url'     => env('PYTHON_MICROSERVICE_URL', 'http://127.0.0.1:8001'),
         'timeout' => (int) env('PYTHON_MICROSERVICE_TIMEOUT', 60),
     ],
+     'timelog' => [
+      'auto_close_buffer_minutes' => env('TIMELOG_AUTO_CLOSE_BUFFER', 20),
+    ],
 
 ];

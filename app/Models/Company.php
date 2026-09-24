@@ -82,7 +82,9 @@ class Company extends Model
      */
     public function students(): BelongsToMany
     {
-        return $this->belongsToMany(Student::class)->withPivot(['supervisor_id', 'course_id'])->withTimestamps();
+        return $this->belongsToMany(Student::class)
+            ->withPivot(['id', 'supervisor_id', 'course_id', 'status', 'removal_reason'])
+            ->withTimestamps();
     }
 
     /**

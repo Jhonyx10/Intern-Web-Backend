@@ -77,7 +77,7 @@ class Student extends Model
     public function companies(): BelongsToMany
     {
         return $this->belongsToMany(Company::class)
-            ->withPivot(['supervisor_id', 'course_id', 'status', 'removal_reason'])
+            ->withPivot(['id','supervisor_id', 'course_id', 'status', 'removal_reason'])
             ->withTimestamps();
     }
 
@@ -136,11 +136,18 @@ class Student extends Model
     }
 
     /**
-     * @return HasOne<OjtSchedule, $this>
+     * @return \Illuminate\Database\Eloquent\Relations\HasOneThrough
      */
-    public function ojtSchedule(): HasOne
+    public function ojtSchedule(): \Illuminate\Database\Eloquent\Relations\HasOneThrough
     {
-        return $this->hasOne(OjtSchedule::class);
+        return $this->hasOneThrough(
+            OjtSchedule::class,
+            CompanyStudent::class,
+            'student_id',         // Foreign key on intermediate table (CompanyStudent)
+            'company_student_id', // Foreign key on target table (OjtSchedule)
+            'id',                 // Local key on students table
+            'id'                  // Local key on intermediate table
+        );
     }
 
     /**

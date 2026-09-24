@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\OjtSchedule;
 use App\Models\Student;
 use App\Models\TimeLog;
 use App\Models\TimeLogTaskPhoto;
@@ -71,6 +72,7 @@ class InternController extends Controller
                 'status'            => $p->status,
                 'submitted_at'      => $p->submitted_at?->toIso8601String(),
                 'created_at'        => $p->created_at?->toIso8601String(),
+                'url'               => $p->file_path ? asset('storage/' . ltrim($p->file_path, '/')) : null,
             ])->values()->all();
         }
 
@@ -92,6 +94,25 @@ class InternController extends Controller
     // Progress
     // -------------------------------------------------------------------------
 
+    public function timeLogDetail(int $timeLogId, Request $request): JsonResponse
+    {
+        $student = $this->resolveStudent($request);
+
+        if (!$student) {
+            return response()->json(['message' => 'Student record not found.'], 404);
+        }
+
+        $log = $student->timeLogs()->with('taskPhotos')->find($timeLogId);
+
+        if (!$log) {
+            return response()->json(['message' => 'Time log not found.'], 404);
+        }
+
+        return response()->json([
+            'log' => $this->formatLogSegment($log, withPhotos: true),
+        ]);
+    }
+
     public function progress(Request $request): JsonResponse
     {
         $student = $this->resolveStudent($request);
@@ -107,7 +128,6 @@ class InternController extends Controller
         $remainingHours = max(0, $requiredHours - $renderedHours);
         $percentComplete = $requiredHours > 0 ? round(($renderedHours / $requiredHours) * 100, 1) : 0;
         $timeLogCount    = $student->timeLogs()->count();
-        $schedule        = $student->ojtSchedule;
 
         $activePlacement = $student->companies()->wherePivot('status', 'active')->first();
         $latestPlacement = $activePlacement
@@ -121,10 +141,20 @@ class InternController extends Controller
             ? $latestPlacement->pivot->removal_reason
             : null;
 
-        $company = $activePlacement ?: $latestPlacement; // keep showing last company even if removed, for context
+        $company = $activePlacement ?: $latestPlacement;
+
+        $companyStudentId = $this->activeCompanyStudentId($student);
+
+        // Approved OJT schedule request takes priority over the company's default schedule.
+        $approvedOjtSchedule = $companyStudentId
+            ? OjtSchedule::where('company_student_id', $companyStudentId)
+                ->where('status', 'approved')
+                ->orderByDesc('start_date')
+                ->first()
+            : null;
 
         $companySchedule = null;
-        if ($company) {
+        if (!$approvedOjtSchedule && $company) {
             $companySchedule = \App\Models\CompanySchedule::where('company_id', $company->id)
                 ->orderBy('start_date', 'desc')
                 ->first();
@@ -142,7 +172,15 @@ class InternController extends Controller
             $daysPerWeek = 5;
             $baseDate = Carbon::now();
 
-            if ($companySchedule) {
+            if ($approvedOjtSchedule) {
+                $hoursPerDay = (float) $approvedOjtSchedule->hours_per_day ?: 8;
+                $daysPerWeek = (float) $approvedOjtSchedule->days_per_week ?: 5;
+                $estimatedEndBasis = 'approved_ojt_schedule';
+
+                if ($approvedOjtSchedule->start_date && $approvedOjtSchedule->start_date->isFuture()) {
+                    $baseDate = $approvedOjtSchedule->start_date->copy();
+                }
+            } elseif ($companySchedule) {
                 // Approximate hours per day based on CompanySchedule time in/out minus 1 lunch break hr
                 try {
                     $in = Carbon::parse($companySchedule->time_in);
@@ -153,17 +191,13 @@ class InternController extends Controller
                     $hoursPerDay = 8;
                 }
                 $estimatedEndBasis = 'company_schedule';
-                
+
                 if ($companySchedule->start_date) {
                     $startDate = Carbon::parse($companySchedule->start_date);
                     if ($startDate->isFuture()) {
                         $baseDate = $startDate;
                     }
                 }
-            } else if ($schedule) {
-                $hoursPerDay       = (float) $schedule->hours_per_day ?: 8;
-                $daysPerWeek       = (float) $schedule->days_per_week ?: 5;
-                $estimatedEndBasis = 'ojt_schedule';
             }
 
             $hoursPerWeek = $hoursPerDay * $daysPerWeek;
@@ -173,20 +207,24 @@ class InternController extends Controller
         }
 
         $scheduleInfo = null;
-        if ($companySchedule) {
+        if ($approvedOjtSchedule) {
             $scheduleInfo = [
-                'hours_per_day' => $hoursPerDay,
+                'hours_per_day' => (float) $approvedOjtSchedule->hours_per_day,
+                'days_per_week' => (int) $approvedOjtSchedule->days_per_week,
+                'time_in'       => Carbon::parse($approvedOjtSchedule->time_in)->format('h:i A'),
+                'time_out'      => Carbon::parse($approvedOjtSchedule->time_out)->format('h:i A'),
+                'start_date'    => $approvedOjtSchedule->start_date?->format('Y-m-d'),
+                'source'        => 'approved_ojt_schedule',
+            ];
+        } elseif ($companySchedule) {
+            $scheduleInfo = [
+                'hours_per_day' => $hoursPerDay ?? 8,
                 'days_per_week' => 5, // Generally M-F by default unless defined elsewhere
                 'time_in'       => Carbon::parse($companySchedule->time_in)->format('h:i A'),
                 'time_out'      => Carbon::parse($companySchedule->time_out)->format('h:i A'),
                 'start_date'    => $companySchedule->start_date ? Carbon::parse($companySchedule->start_date)->format('Y-m-d') : null,
+                'source'        => 'company_schedule',
             ];
-        } else if ($schedule) {
-             $scheduleInfo = [
-                'hours_per_day' => (float) $schedule->hours_per_day,
-                'days_per_week' => (float) $schedule->days_per_week,
-                'start_date'    => null,
-             ];
         }
 
         return response()->json([
@@ -208,8 +246,8 @@ class InternController extends Controller
                 'radius_meters' => (float)$company->geofence_radius_meters,
                 'geofence_polygon' => $company->geofence_polygon
             ] : null,
-                    'placement_status' => $placementStatus,
-                    'removal_reason'   => $removalReason,
+            'placement_status' => $placementStatus,
+            'removal_reason'   => $removalReason,
             'progress' => [
                 'required_hours'               => $requiredHours,
                 'rendered_hours'               => $renderedHours,
@@ -242,7 +280,6 @@ class InternController extends Controller
         $today    = Carbon::today();
         $todayEnd = Carbon::today()->endOfDay();
 
-        // All time logs for today
         $todayLogs = $student->timeLogs()
             ->with('taskPhotos')
             ->whereBetween('time_in', [$today, $todayEnd])
@@ -255,7 +292,6 @@ class InternController extends Controller
             ->whereNotNull('time_out')
             ->sum('duration_minutes');
 
-        // Add minutes from open log so far
         if ($openLog) {
             $todayMinutes += $openLog->time_in->diffInMinutes(Carbon::now());
         }
@@ -265,18 +301,34 @@ class InternController extends Controller
 
         $company = $activePlacement;
 
-        $canPunchIn  = $faceEnrolled && $openLog === null && !$isRemoved;
-        $canPunchOut = $faceEnrolled && $openLog !== null && !$isRemoved;
-        
-        // Lookup company schedule
+        $companyStudentId = $this->activeCompanyStudentId($student);
+
+        $approvedOjtSchedule = $companyStudentId
+            ? OjtSchedule::where('company_student_id', $companyStudentId)
+                ->where('status', 'approved')
+                ->orderByDesc('start_date')
+                ->first()
+            : null;
+
         $companySchedule = null;
-        if ($company) {
+        if (!$approvedOjtSchedule && $company) {
             $companySchedule = \App\Models\CompanySchedule::where('company_id', $company->id)
                 ->orderBy('start_date', 'desc')
                 ->first();
         }
 
-        // Basic geofence info from student's company
+        $effectiveTimeIn    = $approvedOjtSchedule?->time_in ?? $companySchedule?->time_in;
+        $effectiveTimeOut   = $approvedOjtSchedule?->time_out ?? $companySchedule?->time_out;
+        $effectiveStartDate = $approvedOjtSchedule?->start_date
+            ?? ($companySchedule?->start_date ? Carbon::parse($companySchedule->start_date) : null);
+
+        $isInternshipStarted = !$effectiveStartDate
+            || Carbon::now()->startOfDay()->gte($effectiveStartDate->copy()->startOfDay());
+
+        $canPunchIn  = $faceEnrolled && $openLog === null && !$isRemoved && $isInternshipStarted;
+        $canPunchOut = $faceEnrolled && $openLog !== null && !$isRemoved;
+
+        // Geofence info is still keyed off the company record itself, not the schedule.
         $geofence = null;
         if ($company) {
             $geofence = [
@@ -290,16 +342,21 @@ class InternController extends Controller
             ];
         }
 
-        // Generate Lunch Break Info if we have a company schedule
+        // Lunch break policy stays sourced from the company's own schedule, since it's a
+        // company-wide policy rather than something an intern requests per OJT schedule.
+        $companyScheduleForLunch = $companySchedule
+            ?? ($company
+                ? \App\Models\CompanySchedule::where('company_id', $company->id)->orderBy('start_date', 'desc')->first()
+                : null);
+
         $lunchBreakInfo = null;
-        if ($companySchedule && $companySchedule->lunch_break) {
+        if ($companyScheduleForLunch && $companyScheduleForLunch->lunch_break) {
             try {
-                // If it's a fixed lunch break setting ("12:00-13:00"), we can provide some structured data
-                $lunchParts = explode('-', str_replace(' ', '', $companySchedule->lunch_break));
+                $lunchParts = explode('-', str_replace(' ', '', $companyScheduleForLunch->lunch_break));
                 if (count($lunchParts) === 2) {
                     $start = Carbon::parse($lunchParts[0]);
                     $end = Carbon::parse($lunchParts[1]);
-                    
+
                     $lunchBreakInfo = [
                         'lunch_time'            => $start->format('H:i'),
                         'lunch_time_label'      => $start->format('h:i A'),
@@ -308,26 +365,25 @@ class InternController extends Controller
                         'policy_message'        => 'Don\'t forget to time out for lunch!',
                     ];
                 } else {
-                    // It's a text descriptor like "1 hour"
                     $lunchBreakInfo = [
                         'lunch_time'            => '12:00',
-                        'lunch_time_label'      => '12:00 PM', // Fallback defaults
+                        'lunch_time_label'      => '12:00 PM',
                         'afternoon_start_time'  => '13:00',
                         'afternoon_start_label' => '1:00 PM',
-                        'policy_message'        => 'Lunch Policy: ' . $companySchedule->lunch_break,
+                        'policy_message'        => 'Lunch Policy: ' . $companyScheduleForLunch->lunch_break,
                     ];
                 }
             } catch (\Exception $e) {}
         }
-        
+
         $todayAttendance = [
             'status'              => $openLog ? 'present' : ($todayLogs->count() > 0 ? 'present' : 'not_started'),
             'label'               => $openLog ? 'Present (Active)' : ($todayLogs->count() > 0 ? 'Present (Closed)' : 'Not Started'),
             'minutes'             => (int) $todayMinutes,
             'hours'               => round($todayMinutes / 60, 2),
             'is_scheduled_today'  => Carbon::now()->isWeekday(),
-            'schedule_label'      => $companySchedule 
-                ? Carbon::parse($companySchedule->time_in)->format('h:i A') . ' - ' . Carbon::parse($companySchedule->time_out)->format('h:i A') 
+            'schedule_label'      => ($effectiveTimeIn && $effectiveTimeOut)
+                ? Carbon::parse($effectiveTimeIn)->format('h:i A') . ' - ' . Carbon::parse($effectiveTimeOut)->format('h:i A')
                 : null,
             'absence_id'          => null,
             'needs_justification' => false,
@@ -379,6 +435,82 @@ class InternController extends Controller
     // Time: Punch in / out
     // -------------------------------------------------------------------------
 
+    private function autoCloseStaleOpenLog(Student $student, ?TimeLog $openLog): ?TimeLog
+    {
+        if (!$openLog) {
+            return null;
+        }
+
+        // Still today's shift — nothing to do.
+        if ($openLog->time_in->isToday()) {
+            return $openLog;
+        }
+
+        $companyStudentId = $this->activeCompanyStudentId($student);
+
+        // Prefer an approved OJT schedule request, fall back to the company's default schedule.
+        $approvedOjtSchedule = $companyStudentId
+            ? OjtSchedule::where('company_student_id', $companyStudentId)
+                ->where('status', 'approved')
+                ->orderByDesc('start_date')
+                ->first()
+            : null;
+
+        $scheduledTimeOut = $approvedOjtSchedule->time_out ?? null;
+
+        if (!$scheduledTimeOut) {
+            $company = $student->companies()->wherePivot('status', 'active')->first();
+            $companySchedule = $company
+                ? \App\Models\CompanySchedule::where('company_id', $company->id)
+                    ->orderBy('start_date', 'desc')
+                    ->first()
+                : null;
+            $scheduledTimeOut = $companySchedule->time_out ?? null;
+        }
+
+        // Last-resort default if no schedule exists anywhere.
+        $scheduledTimeOut = $scheduledTimeOut ?: '18:00';
+
+        $bufferMinutes = (int) config('services.timelog.auto_close_buffer_minutes', 20);
+
+        // Close it on the calendar day the shift STARTED, at scheduled time-out + buffer —
+        // e.g. scheduled 6:00 PM out, buffer 20 min -> auto time_out of 6:20 PM that same day.
+        $closeAt = Carbon::parse(
+            $openLog->time_in->toDateString() . ' ' . Carbon::parse($scheduledTimeOut)->format('H:i:s')
+        )->addMinutes($bufferMinutes);
+
+        // Guard rails: never close before time_in started, and never into the future.
+        if ($closeAt->lessThanOrEqualTo($openLog->time_in)) {
+            $closeAt = $openLog->time_in->copy()->addHours(8);
+        }
+        if ($closeAt->greaterThan(Carbon::now())) {
+            $closeAt = Carbon::now();
+        }
+
+        $grossDurationMinutes = (int) $openLog->time_in->diffInMinutes($closeAt);
+
+        $breakDurationMinutes = 0;
+        if ($openLog->break_out && $openLog->break_in) {
+            $breakDurationMinutes = (int) Carbon::parse($openLog->break_out)
+                ->diffInMinutes(Carbon::parse($openLog->break_in));
+        }
+
+        $netDurationMinutes = max(0, $grossDurationMinutes - $breakDurationMinutes);
+
+        $openLog->update([
+            'time_out'            => $closeAt,
+            'duration_minutes'    => $netDurationMinutes,
+            'verification_method' => 'auto_closed_missed_punch_out',
+            'task_note'           => trim(
+                ($openLog->task_note ? $openLog->task_note . ' ' : '') . '[Auto-closed: forgot to time out]'
+            ),
+        ]);
+
+        Log::warning("Auto-closed stale open time log #{$openLog->id} for student #{$student->id} at {$closeAt}.");
+
+        return null;
+    }
+
     public function timePunch(Request $request): JsonResponse
     {
         $action = $request->input('action');
@@ -399,6 +531,16 @@ class InternController extends Controller
 
         if (!$student) {
             return response()->json(['message' => 'Student record not found.'], 404);
+        }
+
+        $openLog = $student->timeLogs()->whereNull('time_out')->latest('time_in')->first();
+        $wasAutoClosed = $openLog && !$openLog->time_in->isToday();
+        $openLog = $this->autoCloseStaleOpenLog($student, $openLog);
+
+        if ($action === 'time_out' && $wasAutoClosed) {
+            return response()->json([
+                'message' => 'Your previous shift was automatically timed out because you forgot to punch out. Please punch in to start today\'s shift.',
+            ], 422);
         }
 
         $faceMatchScore = null;
@@ -440,9 +582,6 @@ class InternController extends Controller
         $now       = $request->filled('timestamp') ? Carbon::parse($request->input('timestamp')) : Carbon::now();
         $latitude  = $request->input('latitude');
         $longitude = $request->input('longitude');
-
-        // Get any currently active punch (where time_out is null)
-        $openLog = $student->timeLogs()->whereNull('time_out')->latest('time_in')->first();
 
         if ($action === 'time_in') {
             if ($openLog) {
@@ -537,33 +676,33 @@ class InternController extends Controller
             if ($requiredHours > 0) {
                 $activeCompanyStudentId = $this->activeCompanyStudentId($student);
 
-$totalMinutes = $activeCompanyStudentId
-    ? (float) $student->timeLogs()->where('company_student_id', $activeCompanyStudentId)->sum('duration_minutes')
-    : 0.0;
-                $renderedHours = $totalMinutes / 60;
+        $totalMinutes = $activeCompanyStudentId
+        ? (float) $student->timeLogs()->where('company_student_id', $activeCompanyStudentId)->sum('duration_minutes')
+        : 0.0;
+                    $renderedHours = $totalMinutes / 60;
 
-                if ($renderedHours >= $requiredHours) {
-                    \Illuminate\Support\Facades\DB::table('company_student')
-                        ->where('student_id', $student->id)
-                        ->where('status', 'active')
-                        ->update([
-                            'status'         => 'inactive',
-                            'removal_reason' => 'internship_completed',
-                            'updated_at'     => now(),
-                        ]);
+                    if ($renderedHours >= $requiredHours) {
+                        \Illuminate\Support\Facades\DB::table('company_student')
+                            ->where('student_id', $student->id)
+                            ->where('status', 'active')
+                            ->update([
+                                'status'         => 'inactive',
+                                'removal_reason' => 'internship_completed',
+                                'updated_at'     => now(),
+                            ]);
 
-                    Log::info("Student #{$student->id} reached 100% OJT hours ({$renderedHours}/{$requiredHours}). Company placement deactivated.");
+                        Log::info("Student #{$student->id} reached 100% OJT hours ({$renderedHours}/{$requiredHours}). Company placement deactivated.");
+                    }
                 }
+                // --- END AUTO-DEACTIVATE ---
+
+                $openLog->load('taskPhotos');
+
+                return response()->json([
+                    'message' => 'Punched out successfully.',
+                    'log'     => $this->formatLogSegment($openLog),
+                ]);
             }
-            // --- END AUTO-DEACTIVATE ---
-
-            $openLog->load('taskPhotos');
-
-            return response()->json([
-                'message' => 'Punched out successfully.',
-                'log'     => $this->formatLogSegment($openLog),
-            ]);
-        }
     }
 
 
@@ -864,48 +1003,48 @@ $totalMinutes = $activeCompanyStudentId
 // Time: Task note & photo update (for an open or recent time log)
 // -------------------------------------------------------------------------
 
-public function taskChecker(int $timeLogId, Request $request): JsonResponse
-{
-    $student = $this->resolveStudent($request);
+    public function taskChecker(int $timeLogId, Request $request): JsonResponse
+    {
+        $student = $this->resolveStudent($request);
 
-    if (!$student) {
-        return response()->json(['message' => 'Student record not found.'], 404);
-    }
+        if (!$student) {
+            return response()->json(['message' => 'Student record not found.'], 404);
+        }
 
-    $timeLog = $student->timeLogs()->with('taskPhotos')->where('id', $timeLogId)->first();
+        $timeLog = $student->timeLogs()->with('taskPhotos')->where('id', $timeLogId)->first();
 
-    if (!$timeLog) {
-        return response()->json(['message' => 'Time log not found.'], 404);
-    }
+        if (!$timeLog) {
+            return response()->json(['message' => 'Time log not found.'], 404);
+        }
 
-    $isToday = $timeLog->time_in && $timeLog->time_in->isToday();
+        $isToday = $timeLog->time_in && $timeLog->time_in->isToday();
 
-    if (!$isToday) {
+        if (!$isToday) {
+            return response()->json([
+                'time_log_id'  => $timeLog->id,
+                'is_today'     => false,
+                'has_note'     => filled($timeLog->task_note),
+                'has_photos'   => $timeLog->taskPhotos->isNotEmpty(),
+                'needs_update' => false,
+                'message'      => 'This time log is not from today; no reminder needed.',
+            ]);
+        }
+
+        $hasNote = filled($timeLog->task_note);
+        $hasPhotos = $timeLog->taskPhotos->isNotEmpty();
+        $needsUpdate = !$hasNote || !$hasPhotos;
+
         return response()->json([
             'time_log_id'  => $timeLog->id,
-            'is_today'     => false,
-            'has_note'     => filled($timeLog->task_note),
-            'has_photos'   => $timeLog->taskPhotos->isNotEmpty(),
-            'needs_update' => false,
-            'message'      => 'This time log is not from today; no reminder needed.',
+            'is_today'     => true,
+            'has_note'     => $hasNote,
+            'has_photos'   => $hasPhotos,
+            'needs_update' => $needsUpdate,
+            'message'      => $needsUpdate
+                ? 'Please add a task note and photo(s) for this time log.'
+                : 'Task note and photos are complete.',
         ]);
     }
-
-    $hasNote = filled($timeLog->task_note);
-    $hasPhotos = $timeLog->taskPhotos->isNotEmpty();
-    $needsUpdate = !$hasNote || !$hasPhotos;
-
-    return response()->json([
-        'time_log_id'  => $timeLog->id,
-        'is_today'     => true,
-        'has_note'     => $hasNote,
-        'has_photos'   => $hasPhotos,
-        'needs_update' => $needsUpdate,
-        'message'      => $needsUpdate
-            ? 'Please add a task note and photo(s) for this time log.'
-            : 'Task note and photos are complete.',
-    ]);
-}
 
     public function taskUpdate(Request $request, int $timeLogId): JsonResponse
     {
@@ -954,6 +1093,106 @@ public function taskChecker(int $timeLogId, Request $request): JsonResponse
             'message' => 'Task updated successfully.',
             'log'     => $this->formatLogSegment($timeLog, withPhotos: true),
         ]);
+    }
+
+    // -------------------------------------------------------------------------
+    // Schedule Request
+    // -------------------------------------------------------------------------
+
+    /**
+     * Intern submits a schedule request (start date, time in/out, hours/days).
+     */
+    public function requestSchedule(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'start_date'   => ['required', 'date', 'after_or_equal:today'],
+            'time_in'      => ['required', 'date_format:H:i'],
+            'time_out'     => ['required', 'date_format:H:i', 'after:time_in'],
+            'hours_per_day'=> ['nullable', 'numeric', 'min:1', 'max:24'],
+            'days_per_week'=> ['nullable', 'integer', 'min:1', 'max:7'],
+            'reason'       => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $student = $this->resolveStudent($request);
+        if (!$student) {
+            return response()->json(['message' => 'Student record not found.'], 404);
+        }
+
+        $companyStudentId = $this->activeCompanyStudentId($student);
+        if (!$companyStudentId) {
+            return response()->json(['message' => 'You must be assigned to a company before requesting a schedule.'], 422);
+        }
+
+        // Only one pending request allowed at a time
+        $existingPending = OjtSchedule::where('company_student_id', $companyStudentId)
+            ->where('status', 'pending')
+            ->exists();
+
+        if ($existingPending) {
+            return response()->json(['message' => 'You already have a pending schedule request. Please wait for it to be reviewed.'], 422);
+        }
+
+        $schedule = OjtSchedule::create([
+            'company_student_id' => $companyStudentId,
+            'start_date'         => $validated['start_date'],
+            'time_in'            => $validated['time_in'],
+            'time_out'           => $validated['time_out'],
+            'hours_per_day'      => $validated['hours_per_day'] ?? 8,
+            'days_per_week'      => $validated['days_per_week'] ?? 5,
+            'reason'             => $validated['reason'] ?? null,
+            'status'             => 'pending',
+        ]);
+
+        return response()->json([
+            'message'  => 'Schedule request submitted successfully.',
+            'schedule' => [
+                'id'                 => $schedule->id,
+                'company_student_id' => $schedule->company_student_id,
+                'start_date'         => $schedule->start_date?->toDateString(),
+                'time_in'            => $schedule->time_in,
+                'time_out'           => $schedule->time_out,
+                'hours_per_day'      => (float) $schedule->hours_per_day,
+                'days_per_week'      => (int) $schedule->days_per_week,
+                'reason'             => $schedule->reason,
+                'status'             => $schedule->status,
+                'created_at'         => $schedule->created_at?->toIso8601String(),
+            ],
+        ], 201);
+    }
+
+    /**
+     * Intern views their schedule requests.
+     */
+    public function getScheduleRequests(Request $request): JsonResponse
+    {
+        $student = $this->resolveStudent($request);
+        if (!$student) {
+            return response()->json(['message' => 'Student record not found.'], 404);
+        }
+
+        // Collect all company_student IDs for this student
+        $companyStudentIds = \Illuminate\Support\Facades\DB::table('company_student')
+            ->where('student_id', $student->id)
+            ->pluck('id');
+
+        $schedules = OjtSchedule::whereIn('company_student_id', $companyStudentIds)
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(fn($s) => [
+                'id'                 => $s->id,
+                'company_student_id' => $s->company_student_id,
+                'start_date'         => $s->start_date?->toDateString(),
+                'time_in'            => $s->time_in,
+                'time_out'           => $s->time_out,
+                'hours_per_day'      => (float) $s->hours_per_day,
+                'days_per_week'      => (int) $s->days_per_week,
+                'reason'             => $s->reason,
+                'status'             => $s->status,
+                'created_at'         => $s->created_at?->toIso8601String(),
+                'updated_at'         => $s->updated_at?->toIso8601String(),
+            ]);
+
+        return response()->json(['schedules' => $schedules]);
     }
 }
 

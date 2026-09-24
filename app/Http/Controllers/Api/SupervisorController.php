@@ -140,40 +140,50 @@ class SupervisorController extends Controller
      * Return the list of interns (students) assigned to this supervisor's company.
      */
    public function interns(Request $request): JsonResponse
-{
-    $supervisor = $this->getSupervisor($request);
-    if (!$supervisor || !$supervisor->company) {
-        return response()->json(['data' => []]);
+    {
+        $supervisor = $this->getSupervisor($request);
+        if (!$supervisor || !$supervisor->company) {
+            return response()->json(['data' => []]);
+        }
+
+        $students = $supervisor->company->students()
+            ->wherePivot('status', 'active')
+            ->with(['section', 'ojtSchedule', 'buildings', 'ojtEvaluations.template.items'])
+            ->get()
+            ->map(function ($s) {
+                $companyStudentId = $s->pivot->id;
+
+                $totalMinutes = \App\Models\TimeLog::where('student_id', $s->id)
+                    ->where('company_student_id', $companyStudentId)
+                    ->sum('duration_minutes');
+
+                $approvedSchedule = \App\Models\OjtSchedule::where('company_student_id', $companyStudentId)
+                    ->where('status', 'approved')
+                    ->orderByDesc('created_at')
+                    ->first();
+
+                return [
+                    'id'             => $s->id,
+                    'student_number' => $s->student_number,
+                    'first_name'     => $s->first_name,
+                    'middle_name'    => $s->middle_name,
+                    'last_name'      => $s->last_name,
+                    'is_active'      => $s->is_active,
+                    'section'        => $s->section ? ['id' => $s->section->id, 'name' => $s->section->name] : null,
+                    'required_hours' => $s->ojtSchedule?->required_hours ?? null,
+                    'total_hours'    => round($totalMinutes / 60, 2),
+                    'building_id'    => $s->activeBuildings->first()?->id,
+                    'ojt_evaluations' => $s->ojtEvaluations,
+                    'approved_schedule' => $approvedSchedule ? [
+                        'start_date' => $approvedSchedule->start_date,
+                        'time_in'    => $approvedSchedule->time_in,
+                        'time_out'   => $approvedSchedule->time_out,
+                    ] : null,
+                ];
+            });
+
+        return response()->json(['data' => $students]);
     }
-
-    $students = $supervisor->company->students()
-        ->wherePivot('status', 'active')
-        ->with(['section', 'ojtSchedule', 'buildings', 'ojtEvaluations.template.items'])
-        ->get()
-        ->map(function ($s) {
-            $companyStudentId = $s->pivot->id;
-
-            $totalMinutes = \App\Models\TimeLog::where('student_id', $s->id)
-                ->where('company_student_id', $companyStudentId)
-                ->sum('duration_minutes');
-
-            return [
-                'id'             => $s->id,
-                'student_number' => $s->student_number,
-                'first_name'     => $s->first_name,
-                'middle_name'    => $s->middle_name,
-                'last_name'      => $s->last_name,
-                'is_active'      => $s->is_active,
-                'section'        => $s->section ? ['id' => $s->section->id, 'name' => $s->section->name] : null,
-                'required_hours' => $s->ojtSchedule?->required_hours ?? null,
-                'total_hours'    => round($totalMinutes / 60, 2),
-                'building_id'    => $s->activeBuildings->first()?->id,
-                'ojt_evaluations' => $s->ojtEvaluations,
-            ];
-        });
-
-    return response()->json(['data' => $students]);
-}
 
     /**
      * Return recent time logs (attendance) for all interns in this supervisor's company.
@@ -200,6 +210,8 @@ class SupervisorController extends Controller
                     : '—',
                 'student_number'      => $log->student?->student_number,
                 'time_in'             => $log->time_in?->toIso8601String(),
+                'break_out'             => $log->break_out->toIso8601String(),
+                'break_in'              => $log->break_in->toIso8601String(),
                 'time_out'            => $log->time_out?->toIso8601String(),
                 'duration_minutes'    => $log->duration_minutes,
                 'task_note'           => $log->task_note,
@@ -283,7 +295,10 @@ class SupervisorController extends Controller
     /**
      * Return detail for a single intern: info, company schedules, and their time logs.
      */
-    public function internDetail(Request $request, Student $student): JsonResponse
+        /**
+     * Return detail for a single intern: info, company schedules, and their time logs.
+     */
+   public function internDetail(Request $request, Student $student): JsonResponse
     {
         $supervisor = $this->getSupervisor($request);
 
@@ -331,26 +346,100 @@ class SupervisorController extends Controller
                 'time_out'     => $s->time_out,
             ]);
 
-        $student->loadMissing(['section', 'ojtSchedule']);
+        // Schedule requests the intern submitted (from /intern/schedule/request)
+        $scheduleRequests = \App\Models\OjtSchedule::where('company_student_id', $companyStudentId)
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(fn($r) => [
+                'id'             => $r->id,
+                'status'         => $r->status,
+                'start_date'     => $r->start_date,
+                'time_in'        => $r->time_in,
+                'time_out'       => $r->time_out,
+                'hours_per_day'  => $r->hours_per_day,
+                'days_per_week'  => $r->days_per_week,
+                'reason'         => $r->reason,
+                'created_at'     => $r->created_at?->toIso8601String(),
+            ]);
 
-        return response()->json([
-            'data' => [
-                'id'             => $student->id,
-                'student_number' => $student->student_number,
-                'first_name'     => $student->first_name,
-                'middle_name'    => $student->middle_name,
-                'last_name'      => $student->last_name,
-                'is_active'      => $student->is_active,
-                'section'        => $student->section
-                    ? ['id' => $student->section->id, 'name' => $student->section->name]
-                    : null,
-                'required_hours' => $student->ojtSchedule?->required_hours ?? null,
-                'total_hours'    => round($totalMinutes / 60, 2),
-                'schedules'      => $schedules,
-                'time_logs'      => $logs,
-            ]
-        ]);
+                $student->loadMissing(['section', 'ojtSchedule', 'ojtEvaluations.template.items']);
+
+            return response()->json([
+                'data' => [
+                    'id'                => $student->id,
+                    'student_number'    => $student->student_number,
+                    'first_name'        => $student->first_name,
+                    'middle_name'       => $student->middle_name,
+                    'last_name'         => $student->last_name,
+                    'is_active'         => $student->is_active,
+                    'section'           => $student->section
+                        ? ['id' => $student->section->id, 'name' => $student->section->name]
+                        : null,
+                    'required_hours'    => $student->ojtSchedule?->required_hours ?? null,
+                    'total_hours'       => round($totalMinutes / 60, 2),
+                    'schedules'         => $schedules,
+                    'time_logs'         => $logs,
+                    'schedule_requests' => $scheduleRequests,
+                    'ojt_evaluations'   => $student->ojtEvaluations,
+                ]
+            ]);
     }
+
+    /**
+     * Approve or reject an intern's submitted schedule change request.
+     */
+   public function updateScheduleRequestStatus(Request $request, \App\Models\OjtSchedule $ojtSchedule): JsonResponse
+{
+    $supervisor = $this->getSupervisor($request);
+    if (!$supervisor || !$supervisor->company) {
+        return response()->json(['message' => 'Supervisor or company not found.'], 404);
+    }
+
+    $companyStudent = \App\Models\CompanyStudent::find($ojtSchedule->company_student_id);
+    if (!$companyStudent || (int) $companyStudent->company_id !== (int) $supervisor->company_id) {
+        return response()->json(['message' => 'Unauthorized action.'], 403);
+    }
+
+    $validated = $request->validate([
+        'status' => ['required', 'in:approved,rejected'],
+    ]);
+
+    $ojtSchedule->update(['status' => $validated['status']]);
+
+    $this->scheduleService->sendScheduleStatusNotification($ojtSchedule, $validated['status']);
+
+    return response()->json(['message' => 'Schedule request updated.', 'data' => $ojtSchedule]);
+}
+
+protected function sendScheduleStatusNotification(\App\Models\OjtSchedule $ojtSchedule, string $status): void
+{
+    $student = $ojtSchedule->companyStudent?->student; // adjust to your actual relation path
+    $fcmToken = $student?->user?->fcm_token;
+
+    if (!$fcmToken) {
+        return;
+    }
+
+    $message = CloudMessage::new()
+        ->withToken($fcmToken)
+        ->withNotification(FirebaseNotification::create(
+            'Schedule Request Update',
+            $status === 'approved'
+                ? 'Your schedule request has been approved.'
+                : 'Your schedule request was rejected.'
+        ))
+        ->withData([
+            'type' => 'schedule_status_update',
+            'schedule_id' => (string) $ojtSchedule->id,
+            'status' => $status,
+        ]);
+
+    try {
+        Firebase::messaging()->send($message);
+    } catch (\Exception $e) {
+        Log::error('Failed to send schedule status FCM notification: ' . $e->getMessage());
+    }
+}
 
     protected function sendTerminationNotification(Student $student, string $companyName, string $reason): void
     {
