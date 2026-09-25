@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\User;
+use App\Models\Role;
 use App\Services\UserService;
+use Illuminate\Validation\Rule;
 
 class UserController extends Controller
 {
@@ -18,24 +20,38 @@ class UserController extends Controller
 
     public function index()
     {
-        return User::with('role')->whereNotIn('role_id', [1,6])->get(); 
+        return User::with('role')->whereNotIn('role_id', [1, 6])->get();
     }
 
     public function show(User $user)
     {
-        return $user;
+        return $user->load('role');
     }
 
     public function store(Request $request)
     {
-        $user = $this->userService->createAccount($request->all());
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'unique:users,email'],
+            'role_id' => ['required', 'integer', Rule::exists(Role::class, 'id')],
+            'is_active' => ['boolean'],
+        ]);
+
+        $user = $this->userService->createAccount($validated);
         return $user;
     }
 
     public function update(Request $request, User $user)
     {
-        $user->update($request->all());
-        return $user;
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', Rule::unique('users', 'email')->ignore($user->id)],
+            'role_id' => ['required', 'integer', Rule::exists(Role::class, 'id')],
+            'is_active' => ['boolean'],
+        ]);
+
+        $user->update($validated);
+        return $user->load('role');
     }
 
     public function destroy(User $user)

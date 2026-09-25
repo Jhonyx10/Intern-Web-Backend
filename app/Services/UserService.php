@@ -7,30 +7,42 @@ use App\Models\User;
 use App\Support\DeanPortalScope;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
+use App\Notifications\AccountEmailNotification;
+use Illuminate\Support\Str;
 
 class UserService
 {
-   public function createAccount($data)
-    {
-        $adminRole = Role::where('name', 'Admin')->orWhere('name', 'admin')->first();
+    public function createAccount($data)
+        {
+            $adminRole = Role::where('name', 'Admin')->orWhere('name', 'admin')->first();
 
-        if ($adminRole) {
-            $isCreatingAdmin = isset($data['role_id']) && (int) $data['role_id'] === $adminRole->id;
+            if ($adminRole) {
+                $isCreatingAdmin = isset($data['role_id']) && (int) $data['role_id'] === $adminRole->id;
 
-            if ($isCreatingAdmin) {
-                $adminExists = User::where('role_id', $adminRole->id)->exists();
+                if ($isCreatingAdmin) {
+                    $adminExists = User::where('role_id', $adminRole->id)->exists();
 
-                if ($adminExists) {
-                    throw ValidationException::withMessages([
-                        'role_id' => ['An admin account already exists. Only one admin account is allowed.'],
-                    ]);
+                    if ($adminExists) {
+                        throw ValidationException::withMessages([
+                            'role_id' => ['An admin account already exists. Only one admin account is allowed.'],
+                        ]);
+                    }
                 }
             }
-        }
 
-        $user = User::create($data);
-        return $user;
-    }
+            $plainPassword = Str::password(12);
+            $data['password'] = bcrypt($plainPassword);
+
+            $user = User::create($data);
+
+            $user->notify(new AccountEmailNotification(
+                email: $user->email,
+                password: $plainPassword,
+                loginUrl: url('/login'),
+            ));
+
+            return $user;
+        }
 
     public function getAllCoordinators()
     {
@@ -116,33 +128,44 @@ class UserService
     }
 
 
-    public function createCoordinator($data)
-    {
-        $role = Role::where('name', 'Coordinator')->orWhere('name', 'coordinator')->first();
-        if ($role) {
-            $data['role_id'] = $role->id;
-        }
-
-        $actor = Auth::user();
-
-        if ($actor) {
-            $data['created_by'] = $actor->id;
-
-            if ($actor->hasRole('dean')) {
-                $course = DeanPortalScope::course($actor);
-
-                if ($course === null) {
-                    throw ValidationException::withMessages([
-                        'course_id' => ['You must be assigned to a department before creating coordinators.'],
-                    ]);
-                }
-
-                $data['course_id'] = $course->id;
+        public function createCoordinator($data)
+        {
+            $role = Role::where('name', 'Coordinator')->orWhere('name', 'coordinator')->first();
+            if ($role) {
+                $data['role_id'] = $role->id;
             }
-        }
 
-        return User::create($data);
-    }
+            $actor = Auth::user();
+
+            if ($actor) {
+                $data['created_by'] = $actor->id;
+
+                if ($actor->hasRole('dean')) {
+                    $course = DeanPortalScope::course($actor);
+
+                    if ($course === null) {
+                        throw ValidationException::withMessages([
+                            'course_id' => ['You must be assigned to a department before creating coordinators.'],
+                        ]);
+                    }
+
+                    $data['course_id'] = $course->id;
+                }
+            }
+
+            $plainPassword = Str::password(12);
+            $data['password'] = bcrypt($plainPassword);
+
+            $user = User::create($data);
+
+            $user->notify(new AccountEmailNotification(
+                email: $user->email,
+                password: $plainPassword,
+                loginUrl: url('/login'),
+            ));
+
+            return $user;
+        }
 
     public function updateCoordinator($id, $data)
     {
