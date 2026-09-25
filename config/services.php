@@ -40,8 +40,9 @@ return [
     ],
 
     'python_microservice' => [
-        'url'     => env('PYTHON_MICROSERVICE_URL', 'http://127.0.0.1:8001'),
-        'timeout' => (int) env('PYTHON_MICROSERVICE_TIMEOUT', 60),
+        'url' => env('FACE_API_URL', 'http://127.0.0.1:8001'),
+        'key' => env('FACE_API_KEY'),
+        'timeout' => env('FACE_API_TIMEOUT', 60),
     ],
      'timelog' => [
       'auto_close_buffer_minutes' => env('TIMELOG_AUTO_CLOSE_BUFFER', 20),

@@ -9,35 +9,24 @@ use Illuminate\Validation\ValidationException;
 
 class PythonMicroservice
 {
-    /**
-     * The URL of the Python face embedding microservice.
-     */
     private string $baseUrl;
-
-    /**
-     * Request timeout in seconds. The dlib HOG model can take ~20s on first
-     * cold boot, so we give it a generous window.
-     */
     private int $timeout;
+    private ?string $apiKey;
 
     public function __construct()
     {
         $this->baseUrl = config('services.python_microservice.url', 'http://127.0.0.1:8001');
         $this->timeout = (int) config('services.python_microservice.timeout', 60);
+        $this->apiKey  = config('services.python_microservice.key');
     }
 
-    /**
-     * Send an uploaded image to the Python face embedding microservice and
-     * return the raw 128-element embedding array.
-     *
-     * @param  UploadedFile  $imageFile  The uploaded image from the request.
-     * @return float[]                   128-element face embedding vector.
-     *
-     * @throws ValidationException  When no face is found or the service is unreachable.
-     */
     public function extractEmbedding(UploadedFile $imageFile): array
     {
         $response = Http::timeout($this->timeout)
+            ->withHeaders([
+                'X-API-Key' => $this->apiKey,
+                'ngrok-skip-browser-warning' => 'true',
+            ])
             ->attach(
                 'image',
                 file_get_contents($imageFile->getRealPath()),
