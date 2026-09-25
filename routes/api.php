@@ -137,6 +137,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::put('/user/password', [UserProfileController::class, 'updatePassword']);
     Route::get('/settings', [SettingController::class, 'getSettings']);
     Route::post('/dean/settings', [SettingController::class, 'updateDeanSettings']);
+    Route::post('/user/fcm-token', [UserController::class, 'updateFcmToken']);
 
     // Intern Mobile API
     Route::prefix('intern')->group(function (): void {

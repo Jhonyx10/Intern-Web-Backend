@@ -406,40 +406,40 @@ class SupervisorController extends Controller
 
     $ojtSchedule->update(['status' => $validated['status']]);
 
-    $this->scheduleService->sendScheduleStatusNotification($ojtSchedule, $validated['status']);
+    $this->sendScheduleStatusNotification($ojtSchedule, $validated['status']);
 
     return response()->json(['message' => 'Schedule request updated.', 'data' => $ojtSchedule]);
 }
 
-protected function sendScheduleStatusNotification(\App\Models\OjtSchedule $ojtSchedule, string $status): void
-{
-    $student = $ojtSchedule->companyStudent?->student; // adjust to your actual relation path
-    $fcmToken = $student?->user?->fcm_token;
+    protected function sendScheduleStatusNotification(\App\Models\OjtSchedule $ojtSchedule, string $status): void
+    {
+        $student = $ojtSchedule->companyStudent?->student; // adjust to your actual relation path
+        $fcmToken = $student?->user?->fcm_token;
 
-    if (!$fcmToken) {
-        return;
+        if (!$fcmToken) {
+            return;
+        }
+
+        $message = CloudMessage::new()
+            ->withToken($fcmToken)
+            ->withNotification(FirebaseNotification::create(
+                'Schedule Request Update',
+                $status === 'approved'
+                    ? 'Your schedule request has been approved.'
+                    : 'Your schedule request was rejected.'
+            ))
+            ->withData([
+                'type' => 'schedule_status_update',
+                'schedule_id' => (string) $ojtSchedule->id,
+                'status' => $status,
+            ]);
+
+        try {
+            Firebase::messaging()->send($message);
+        } catch (\Exception $e) {
+            Log::error('Failed to send schedule status FCM notification: ' . $e->getMessage());
+        }
     }
-
-    $message = CloudMessage::new()
-        ->withToken($fcmToken)
-        ->withNotification(FirebaseNotification::create(
-            'Schedule Request Update',
-            $status === 'approved'
-                ? 'Your schedule request has been approved.'
-                : 'Your schedule request was rejected.'
-        ))
-        ->withData([
-            'type' => 'schedule_status_update',
-            'schedule_id' => (string) $ojtSchedule->id,
-            'status' => $status,
-        ]);
-
-    try {
-        Firebase::messaging()->send($message);
-    } catch (\Exception $e) {
-        Log::error('Failed to send schedule status FCM notification: ' . $e->getMessage());
-    }
-}
 
     protected function sendTerminationNotification(Student $student, string $companyName, string $reason): void
     {

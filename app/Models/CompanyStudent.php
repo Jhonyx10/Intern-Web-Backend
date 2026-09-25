@@ -17,4 +17,9 @@ class CompanyStudent extends Pivot
     {
         return $this->hasOne(OjtSchedule::class, 'company_student_id');
     }
+
+    public function student()
+    {
+        return $this->belongsTo(Student::class, 'student_id');
+    }
 }

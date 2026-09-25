@@ -2,7 +2,7 @@
 
 namespace App\Notifications;
 
-use App\Models\OjtEvaluation;
+use App\Models\Evaluation;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
@@ -15,7 +15,7 @@ class EvaluationReadyNotification extends Notification implements ShouldQueue, S
     use Queueable;
 
     public function __construct(
-        public OjtEvaluation $evaluation
+        public Evaluation $evaluation
     ) {}
 
     public function via(object $notifiable): array

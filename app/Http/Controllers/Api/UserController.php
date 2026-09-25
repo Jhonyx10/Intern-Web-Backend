@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use App\Models\User;
 use App\Models\Role;
 use App\Services\UserService;
@@ -58,5 +59,18 @@ class UserController extends Controller
     {
         $user->delete();
         return response()->noContent();
+    }
+
+    public function updateFcmToken(Request $request): JsonResponse
+    {
+        $request->validate([
+            'fcm_token' => 'required|string',
+        ]);
+
+        $request->user()->update([
+            'fcm_token' => $request->input('fcm_token'),
+        ]);
+
+        return response()->json(['message' => 'FCM token updated.']);
     }
 }
