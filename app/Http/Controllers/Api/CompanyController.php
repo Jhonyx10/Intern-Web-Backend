@@ -14,6 +14,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
+use App\Notifications\AccountEmailNotification;
+use Illuminate\Support\Str;
 
 class CompanyController extends Controller
 {
@@ -324,7 +326,7 @@ class CompanyController extends Controller
     /**
      * Add a supervisor to this company.
      */
-    public function storeSupervisor(Request $request, Company $company): JsonResponse
+   public function storeSupervisor(Request $request, Company $company): JsonResponse
     {
         $validated = $request->validate([
             'email' => ['required', 'email', 'unique:users,email'],
@@ -338,10 +340,12 @@ class CompanyController extends Controller
             return response()->json(['message' => 'Supervisor role not found.'], 500);
         }
 
+        $plainPassword = Str::password(12);
+
         $user = User::create([
             'name' => trim($validated['first_name'] . ' ' . $validated['last_name']),
             'email' => $validated['email'],
-            'password' => Hash::make('password123'),
+            'password' => Hash::make($plainPassword),
             'role_id' => $role->id,
             'is_active' => true,
         ]);
@@ -353,9 +357,15 @@ class CompanyController extends Controller
             'is_active' => true,
         ]);
 
+        $user->notify(new AccountEmailNotification(
+            email: $user->email,
+            password: $plainPassword,
+            loginUrl: url('/login'),
+        ));
+
         return response()->json([
             'message' => 'Supervisor added successfully.',
-            'data' => $supervisor->load('user')
+            'data' => $supervisor->load('user'),
         ], 201);
     }
 }
