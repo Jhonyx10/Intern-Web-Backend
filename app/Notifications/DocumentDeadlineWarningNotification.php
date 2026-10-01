@@ -28,10 +28,15 @@ class DocumentDeadlineWarningNotification extends Notification implements Should
      */
     public function via(object $notifiable): array
     {
-        // Add other channels like 'mail' or 'database' if needed.
-        // We handle Firebase sending directly in a custom channel or directly in this class via a custom channel.
-        // For simplicity and full control with kreait/laravel-firebase, we can use a custom channel.
-        return [FirebaseChannel::class];
+        return [FirebaseChannel::class, 'database'];
+    }
+
+    public function toArray($notifiable)
+    {
+        return [
+            'title' => 'Document Deadline Approaching!',
+            'body' => "Your deadline for '{$this->requirement->title}' is on " . $this->deadline->format('M d, Y') . ". Please submit your documents before the deadline.",
+        ];
     }
 }
 

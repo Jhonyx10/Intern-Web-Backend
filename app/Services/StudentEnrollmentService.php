@@ -17,7 +17,7 @@ class StudentEnrollmentService
 
             $user = User::create([
                 'name'     => trim($data['first_name'] . ' ' . $data['last_name']),
-                'email'    => $data['student_number'],
+                'email'    => $data['email'],
                 'password' => Hash::make($data['student_number']),
                 'role_id'  => $role->id,
                 'is_active' => $data['is_active'] ?? true,

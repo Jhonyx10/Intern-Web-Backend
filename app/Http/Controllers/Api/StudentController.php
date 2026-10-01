@@ -39,9 +39,42 @@ class StudentController extends Controller
             $query->whereDoesntHave('companies', function ($q) {
                 $q->where('company_student.status', 'active');
             });
+            $query->with(['section.course.documentRequirements', 'documents' => function ($q) {
+                $q->where('review_status', 'approved');
+            }]);
         }
 
         $students = $query->paginate($perPage);
+
+        if ($unassigned) {
+            $students->getCollection()->transform(function ($student) {
+                $courseRequirements = $student->section->course->documentRequirements ?? collect();
+                $isReady = true;
+
+                foreach ($courseRequirements as $req) {
+                    if (!$student->documents->contains('document_requirement_id', $req->id)) {
+                        if (isset($req->document_type_id) && $req->document_type_id) {
+                            if (!$student->documents->contains('document_type_id', $req->document_type_id)) {
+                                $isReady = false;
+                                break;
+                            }
+                        } else {
+                            $isReady = false;
+                            break;
+                        }
+                    }
+                }
+
+                $student->is_ready_for_assignment = $isReady;
+                
+                // Hide these relations from the payload to keep it lean
+                unset($student->documents);
+                if ($student->section && $student->section->course) {
+                    unset($student->section->course->documentRequirements);
+                }
+                return $student;
+            });
+        }
 
         return response()->json(['data' => $students]);
     }
@@ -56,6 +89,7 @@ class StudentController extends Controller
             'first_name'     => ['required', 'string'],
             'middle_name'    => ['nullable', 'string'],
             'last_name'      => ['required', 'string'],
+            'email'         =>  ['required', 'email', 'unique:users,email'],
             'section_id'     => ['required', 'integer', Rule::exists(Section::class, 'id')],
             'is_active'      => ['required', 'boolean'],
         ]);

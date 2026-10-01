@@ -588,6 +588,37 @@ class InternController extends Controller
                 return response()->json(['message' => 'You already have an open time log. Please punch out first.'], 422);
             }
 
+            $companyStudentId = $this->activeCompanyStudentId($student);
+            $approvedOjtSchedule = $companyStudentId
+                ? \App\Models\OjtSchedule::where('company_student_id', $companyStudentId)
+                    ->where('status', 'approved')
+                    ->orderByDesc('start_date')
+                    ->first()
+                : null;
+
+            $companySchedule = null;
+            if (!$approvedOjtSchedule) {
+                $company = $student->companies()->wherePivot('status', 'active')->first();
+                if ($company) {
+                    $companySchedule = \App\Models\CompanySchedule::where('company_id', $company->id)
+                        ->orderByDesc('start_date')
+                        ->first();
+                }
+            }
+
+            $effectiveTimeIn = $approvedOjtSchedule?->time_in ?? $companySchedule?->time_in;
+
+            if ($effectiveTimeIn) {
+                $scheduledTimeInToday = Carbon::parse($now->format('Y-m-d') . ' ' . $effectiveTimeIn);
+                
+                // Allow punching in exactly 20 minutes before scheduled time
+                if ($now->copy()->addMinutes(20)->lessThan($scheduledTimeInToday)) {
+                    return response()->json([
+                        'message' => 'You can only punch in 20 minutes before your scheduled time in (' . Carbon::parse($effectiveTimeIn)->format('g:i A') . ').'
+                    ], 422);
+                }
+            }
+
             $log = $student->timeLogs()->create([
                 'time_in'             => $now,
                 'company_student_id'  => $this->activeCompanyStudentId($student),
@@ -781,20 +812,40 @@ class InternController extends Controller
 
     public function updateEmail(Request $request): JsonResponse
     {
+        // Step 1: Validate format/presence only (no uniqueness yet)
         $validated = $request->validate([
-            'email'            => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
+            'email'            => ['required', 'string', 'email', 'max:255'],
             'current_password' => ['required', 'string'],
         ]);
 
         $user = $request->user();
 
+        // Step 2: Check password first — so a wrong password always shows as a password error
         if (!Hash::check($validated['current_password'], $user->password)) {
             throw ValidationException::withMessages([
                 'current_password' => ['The current password is incorrect.'],
             ]);
         }
 
-        $user->update(['email' => $validated['email']]);
+        // Step 3: Check if it's the same as the current email
+        if (strtolower($validated['email']) === strtolower($user->email)) {
+            throw ValidationException::withMessages([
+                'email' => ['The new email address is the same as your current email.'],
+            ]);
+        }
+
+        // Step 4: Check if the email is already in use by another account
+        $emailTaken = \App\Models\User::where('email', $validated['email'])
+            ->where('id', '!=', $user->id)
+            ->exists();
+
+        if ($emailTaken) {
+            throw ValidationException::withMessages([
+                'email' => ['This email address is already associated with another account.'],
+            ]);
+        }
+
+        $user->update(['email' => $validated['email'], 'email_verified_at' => null]);
 
         return response()->json([
             'message' => 'Email updated successfully.',

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Student;
 use App\Models\StudentFaceProfile;
 use App\Models\User;
+use App\Notifications\ForgotPasswordNotification;
 use App\Services\PythonMicroservice;
 use App\Support\FaceEmbedding;
 use App\Support\FaceMatcher;
@@ -13,6 +14,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class MobileAuthController extends Controller
@@ -82,7 +84,43 @@ class MobileAuthController extends Controller
         ]);
     }
 
-/**
+    /**
+     * Forgot password for mobile (intern/student) users.
+     * Accepts student_number, generates a new password, and emails it.
+     */
+    public function forgotPassword(Request $request): JsonResponse
+    {
+        $request->validate([
+            'student_number' => ['required', 'string'],
+        ]);
+
+        $student = Student::query()
+            ->with('user')
+            ->where('student_number', $request->input('student_number'))
+            ->first();
+
+        if ($student === null || $student->user === null) {
+            return response()->json([
+                'message' => 'No account found with that student number.',
+            ], 422);
+        }
+
+        $user = $student->user;
+
+        // Generate a random 12-character password
+        $newPassword = Str::random(12);
+
+        $user->password = Hash::make($newPassword);
+        $user->save();
+
+        $user->notify(new ForgotPasswordNotification($newPassword));
+
+        return response()->json([
+            'message' => 'A new password has been sent to your registered email address. Please check your inbox (and spam folder) for your new password.',
+        ]);
+    }
+
+    /**
      * Face Recognition Login for Intern/Student using an Image upload.
      */
     public function faceLogin(Request $request): JsonResponse

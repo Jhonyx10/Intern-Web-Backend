@@ -6,9 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\StaffLoginRequest;
 use App\Models\Student;
 use App\Models\User;
+use App\Notifications\ForgotPasswordNotification;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class StaffAuthController extends Controller
@@ -79,6 +81,33 @@ class StaffAuthController extends Controller
 
         return response()->json([
             'message' => 'Logged out successfully.',
+        ]);
+    }
+
+    public function forgotPassword(Request $request): JsonResponse
+    {
+        $request->validate([
+            'email' => ['required', 'email'],
+        ]);
+
+        $user = User::query()->where('email', $request->input('email'))->first();
+
+        if ($user === null) {
+            return response()->json([
+                'message' => 'The email address is not registered in the system.',
+            ], 422);
+        }
+
+        // Generate a random 12-character password
+        $newPassword = Str::random(12);
+
+        $user->password = Hash::make($newPassword);
+        $user->save();
+
+        $user->notify(new ForgotPasswordNotification($newPassword));
+
+        return response()->json([
+            'message' => 'A new password has been sent to your email. Please check your inbox (and spam folder) for your new password.',
         ]);
     }
 

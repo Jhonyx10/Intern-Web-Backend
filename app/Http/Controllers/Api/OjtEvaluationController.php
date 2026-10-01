@@ -52,6 +52,36 @@ class OjtEvaluationController extends Controller
         return response()->json($template->load(['courses:id,code,name', 'items']), 201);
     }
 
+    public function update(StoreEvaluationTemplateRequest $request, $id)
+    {
+        $validated = $request->validated();
+        $template = EvaluationTemplate::findOrFail($id);
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($template, $validated) {
+            $template->update([
+                'title'       => $validated['title'],
+                'description' => $validated['description'] ?? null,
+                'is_active'   => $validated['is_active'],
+            ]);
+
+            if (isset($validated['course_ids'])) {
+                $template->courses()->sync($validated['course_ids']);
+            }
+
+            if (isset($validated['items'])) {
+                // Remove out-dated items
+                $template->items()->delete();
+                
+                // create or re-create items
+                foreach ($validated['items'] as $itemData) {
+                    $template->items()->create($itemData);
+                }
+            }
+        });
+
+        return response()->json($template->load(['courses:id,code,name', 'items']));
+    }
+
    public function bulkAssign(Request $request)
     {
         $request->validate([
@@ -119,6 +149,21 @@ class OjtEvaluationController extends Controller
     {
         $evaluation->loadMissing('student.user');
 
+        $notifTitle = 'Evaluation Completed';
+        $notifBody = 'Your OJT evaluation has been filled up by your supervisor. You can now view your results.';
+
+        if ($evaluation->student?->user) {
+            $evaluation->student->user->notifications()->create([
+                'id' => \Illuminate\Support\Str::uuid(),
+                'type' => 'App\Notifications\EvaluationCompletedNotification',
+                'data' => [
+                    'title' => $notifTitle,
+                    'body'  => $notifBody,
+                ],
+                'read_at' => null,
+            ]);
+        }
+
         $fcmToken = $evaluation->student?->user?->fcm_token;
 
         if (! $fcmToken) {
@@ -129,8 +174,8 @@ class OjtEvaluationController extends Controller
             $message = CloudMessage::new()
                 ->withToken($fcmToken)
                 ->withNotification(FirebaseNotification::create(
-                    'Evaluation Completed',
-                    'Your OJT evaluation has been filled up by your supervisor. You can now view your results.'
+                    $notifTitle,
+                    $notifBody
                 ));
 
             Firebase::messaging()->send($message);

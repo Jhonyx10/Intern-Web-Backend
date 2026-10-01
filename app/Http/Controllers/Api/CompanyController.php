@@ -242,19 +242,51 @@ class CompanyController extends Controller
 
         $studentIds = array_values(array_unique($validated['student_ids']));
 
-        // Guard: fail the whole request if any student already has an active placement
-        $alreadyAssigned = DB::table('company_student')
+        // Reassignment: mark any active placements as inactive for these students before assigning.
+        DB::table('company_student')
             ->whereIn('student_id', $studentIds)
             ->where('status', 'active')
-            ->pluck('student_id')
-            ->unique()
-            ->values();
+            ->update([
+                'status' => 'inactive',
+                'removal_reason' => 'System: Automatically reassigned to a new company.',
+                'updated_at' => now(),
+            ]);
 
-        if ($alreadyAssigned->isNotEmpty()) {
-            return response()->json([
-                'message' => 'One or more students are already actively assigned to a company. Please remove them from their current company before re-assigning.',
-                'student_ids' => $alreadyAssigned,
-            ], 422);
+        // Guard 2: check if any of these students has incomplete or unapproved documents.
+        // Get all course requirements for these students
+        $students = Student::with(['section.course.documentRequirements', 'documents' => function ($q) {
+            $q->where('review_status', 'approved');
+        }])->whereIn('id', $studentIds)->get();
+
+        foreach ($students as $student) {
+            $courseRequirements = $student->section->course->documentRequirements ?? collect();
+            $approvedDocTypeIds = $student->documents->pluck('document_requirement_id')->filter()->unique();
+            
+            // Wait, documents can be linked by document_requirement_id or document_type_id
+            // Better to check if all requirement IDs are present
+            $missingDocs = false;
+            foreach ($courseRequirements as $req) {
+                // If the student doesn't have an approved document for this requirement
+                if (!$student->documents->contains('document_requirement_id', $req->id)) {
+                    // Fallback to checking document_type_id in case it's stored that way
+                    if ($req->document_type_id) {
+                        if (!$student->documents->contains('document_type_id', $req->document_type_id)) {
+                            $missingDocs = true;
+                            break;
+                        }
+                    } else {
+                        $missingDocs = true;
+                        break;
+                    }
+                }
+            }
+
+            if ($missingDocs) {
+                return response()->json([
+                    'message' => 'One or more students have missing or pending required documents. Cannot deploy.',
+                    'student_ids' => [$student->id]
+                ], 422);
+            }
         }
 
         $user = $request->user();

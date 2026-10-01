@@ -114,14 +114,27 @@ class EvaluationService
      */
     protected function sendEvaluationNotification(Student $student, int $templateId): void
     {
+        $title = 'New Evaluation Assigned';
+        $body = "A new evaluation has been assigned to you. Please complete it as soon as possible.";
+
+        if ($student->user) {
+            $student->user->notifications()->create([
+                'id' => \Illuminate\Support\Str::uuid(),
+                'type' => 'App\Notifications\EvaluationAssignedNotification',
+                'data' => [
+                    'title' => $title,
+                    'body' => $body,
+                ],
+                'read_at' => null,
+            ]);
+        }
+
         $fcmToken = $student->user?->fcm_token;
 
         if (! $fcmToken) {
             return;
         }   
 
-        $title = 'New Evaluation Assigned';
-        $body = "A new evaluation has been assigned to you. Please complete it as soon as possible.";
 
         $message = CloudMessage::new()
             ->withToken($fcmToken)

@@ -124,7 +124,7 @@ class DocumentsController extends Controller
     public function storeRequirement(Request $request)
     {
         $validated = $request->validate([
-            'document_type_id' => ['required', 'integer', 'exists:document_types,id'],
+            'document_type_id' => ['nullable', 'integer', 'exists:document_types,id'],
             'title' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'accepted_file_types' => ['nullable', 'string'],

@@ -28,7 +28,9 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function (): void {
     Route::post('/login', [StaffAuthController::class, 'login']);
+    Route::post('/forgot-password', [StaffAuthController::class, 'forgotPassword']);
     Route::post('/mobile/login', [MobileAuthController::class, 'login']);
+    Route::post('/mobile/forgot-password', [MobileAuthController::class, 'forgotPassword']);
     Route::post('/face-login', [MobileAuthController::class, 'faceLogin']);
 
     Route::middleware('auth:sanctum')->group(function (): void {
@@ -70,6 +72,9 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::apiResource('roles',RolesController::class);
     Route::apiResource('coordinators',CoordinatorController::class);
     Route::apiResource('students', StudentController::class);
+    Route::get('/history/students', [\App\Http\Controllers\Api\HistoryController::class, 'students']);
+    Route::get('/history/documents', [\App\Http\Controllers\Api\HistoryController::class, 'documents']);
+    Route::get('/history/school-years', [\App\Http\Controllers\Api\HistoryController::class, 'schoolYears']);
     Route::get('/time-logs/{id}/details', [TimeLogController::class, 'timeLogDetails']);
     Route::get('/company-requests', [CompanyRequestController::class, 'index']);
     Route::post('/company-requests/{companyRequest}/accept', [CompanyRequestController::class, 'coordinatorAccept']);
@@ -95,6 +100,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     //evaluation
     Route::get('/evaluation-templates', [OjtEvaluationController::class, 'index']);
     Route::post('/evaluation-templates', [OjtEvaluationController::class, 'store']);
+    Route::put('/evaluation-templates/{id}', [OjtEvaluationController::class, 'update']);
     Route::get('/show/evaluation/{id}', [OjtEvaluationController::class, 'showEvaluation']);
     Route::post('/evaluations/bulk-assign', [OjtEvaluationController::class, 'bulkAssign']);
     Route::post('/evaluations/{evaluation}/submit', [OjtEvaluationController::class, 'submit']);
@@ -130,6 +136,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/supervisor/interns/{student}/remove', [SupervisorController::class, 'removeIntern']);
     Route::get('/supervisor/interns/{student}', [SupervisorController::class, 'internDetail']);
     Route::patch('/supervisor/schedule-requests/{ojtSchedule}/status', [SupervisorController::class, 'updateScheduleRequestStatus']);
+    Route::put('/supervisor/company/geofence', [SupervisorController::class, 'updateGeofence']);
 
      
     // User Profile & Department Settings

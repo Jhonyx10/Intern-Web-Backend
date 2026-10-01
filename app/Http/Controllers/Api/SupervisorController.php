@@ -414,6 +414,24 @@ class SupervisorController extends Controller
     protected function sendScheduleStatusNotification(\App\Models\OjtSchedule $ojtSchedule, string $status): void
     {
         $student = $ojtSchedule->companyStudent?->student; // adjust to your actual relation path
+        
+        $title = 'Schedule Request Update';
+        $body = $status === 'approved'
+            ? 'Your schedule request has been approved.'
+            : 'Your schedule request was rejected.';
+
+        if ($student && $student->user) {
+            $student->user->notifications()->create([
+                'id' => \Illuminate\Support\Str::uuid(),
+                'type' => 'App\Notifications\ScheduleStatusNotification',
+                'data' => [
+                    'title' => $title,
+                    'body' => $body,
+                ],
+                'read_at' => null,
+            ]);
+        }
+
         $fcmToken = $student?->user?->fcm_token;
 
         if (!$fcmToken) {
@@ -422,12 +440,7 @@ class SupervisorController extends Controller
 
         $message = CloudMessage::new()
             ->withToken($fcmToken)
-            ->withNotification(FirebaseNotification::create(
-                'Schedule Request Update',
-                $status === 'approved'
-                    ? 'Your schedule request has been approved.'
-                    : 'Your schedule request was rejected.'
-            ))
+            ->withNotification(FirebaseNotification::create($title, $body))
             ->withData([
                 'type' => 'schedule_status_update',
                 'schedule_id' => (string) $ojtSchedule->id,
@@ -443,14 +456,27 @@ class SupervisorController extends Controller
 
     protected function sendTerminationNotification(Student $student, string $companyName, string $reason): void
     {
+        $title = 'Removed from Internship Program';
+        $body = "You have been removed from your internship at {$companyName}. Reason: {$reason}";
+
+        if ($student->user) {
+            $student->user->notifications()->create([
+                'id' => \Illuminate\Support\Str::uuid(),
+                'type' => 'App\Notifications\InternTerminationNotification',
+                'data' => [
+                    'title' => $title,
+                    'body' => $body,
+                ],
+                'read_at' => null,
+            ]);
+        }
+
         $fcmToken = $student->user?->fcm_token;
 
         if (! $fcmToken) {
             return;
         }
 
-        $title = 'Removed from Internship Program';
-        $body = "You have been removed from your internship at {$companyName}. Reason: {$reason}";
 
         $message = CloudMessage::new()
             ->withToken($fcmToken)
@@ -462,6 +488,32 @@ class SupervisorController extends Controller
         } catch (\Exception $e) {
             Log::error('Failed to send intern termination FCM notification: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Update the main company geofence (for supervisor).
+     */
+    public function updateGeofence(Request $request): JsonResponse
+    {
+        $supervisor = $this->getSupervisor($request);
+        if (!$supervisor || !$supervisor->company) {
+            return response()->json(['message' => 'Supervisor or company not found.'], 404);
+        }
+
+        $validated = $request->validate([
+            'geofence_enabled'             => ['required', 'boolean'],
+            'geofence_polygon'             => ['nullable', 'array'],
+            'geofence_polygon.type'        => ['required_with:geofence_polygon', 'in:Polygon'],
+            'geofence_polygon.coordinates' => ['required_with:geofence_polygon', 'array', 'min:1'],
+            'geofence_radius_meters'       => ['nullable', 'integer', 'min:5', 'max:5000'],
+        ]);
+
+        $supervisor->company->update($validated);
+
+        return response()->json([
+            'message' => 'Company geofence updated successfully.',
+            'data'    => $supervisor->company->fresh(),
+        ]);
     }
 
 }
