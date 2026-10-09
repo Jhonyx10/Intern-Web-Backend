@@ -59,6 +59,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/companies/{company}/assign-student', [CompanyController::class, 'assignStudent']);
     Route::post('/companies/{company}/remove-student', [CompanyController::class, 'removeStudent']);
     Route::post('/companies/{company}/supervisors', [CompanyController::class, 'storeSupervisor']);
+    Route::patch('/companies/{company}/toggle-active', [CompanyController::class, 'toggleActive']);
     Route::get('/companies/{company}', [CompanyController::class, 'show']);
     // Buildings (nested under company)
     Route::get('/companies/{company}/buildings', [BuildingController::class, 'index']);
@@ -72,9 +73,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::apiResource('roles',RolesController::class);
     Route::apiResource('coordinators',CoordinatorController::class);
     Route::apiResource('students', StudentController::class);
-    Route::get('/history/students', [\App\Http\Controllers\Api\HistoryController::class, 'students']);
-    Route::get('/history/documents', [\App\Http\Controllers\Api\HistoryController::class, 'documents']);
     Route::get('/history/school-years', [\App\Http\Controllers\Api\HistoryController::class, 'schoolYears']);
+    Route::get('/history/school-years/{schoolYear}', [\App\Http\Controllers\Api\HistoryController::class, 'schoolYearDetails']);
     Route::get('/time-logs/{id}/details', [TimeLogController::class, 'timeLogDetails']);
     Route::get('/company-requests', [CompanyRequestController::class, 'index']);
     Route::post('/company-requests/{companyRequest}/accept', [CompanyRequestController::class, 'coordinatorAccept']);
@@ -91,8 +91,6 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/document-requirements', [DocumentsController::class, 'storeRequirement']);
     Route::patch('/student/documents/{document}/status', [DocumentsController::class, 'updateStatus']);
 
-    Route::get('/document-types', [DocumentsController::class, 'indexTypes']);
-    Route::post('/document-types', [DocumentsController::class, 'storeDocumentType']);
 
     Route::get('/courses/{course}/document-requirements', [DocumentsController::class, 'courseRequirements']);
     Route::put('/courses/{course}/document-requirements', [DocumentsController::class, 'syncCourseRequirements']);
@@ -110,6 +108,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/notifications/mark-as-read', [OjtEvaluationController::class, 'markNotificationsAsRead']);
 
     // School Years
+    Route::get('/school-years/current', [SYSectionController::class, 'currentSchoolYear']);
     Route::get('/school-years', [SYSectionController::class, 'indexSchoolYears']);
     Route::post('/school-years', [SYSectionController::class, 'storeSchoolYear']);
     Route::put('/school-years/{schoolYear}', [SYSectionController::class, 'updateSchoolYear']);

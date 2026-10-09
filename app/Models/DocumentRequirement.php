@@ -13,13 +13,13 @@ class DocumentRequirement extends Model
      * @var list<string>
      */
     protected $fillable = [
-        'document_type_id',
         'created_by_user_id',
         'title',
         'description',
         'deadline_at',
         'accepted_file_types',
         'is_active',
+        'recurrence',
     ];
 
     /**
@@ -56,11 +56,6 @@ class DocumentRequirement extends Model
     public function submissions(): HasMany
     {
         return $this->hasMany(StudentDocument::class);
-    }
-
-    public function documentType()
-    {
-        return $this->belongsTo(DocumentType::class);
     }
 
     public function courses()

@@ -24,9 +24,13 @@ class CompanyController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $companies = Company::query()
-            ->where('is_active', true)
-            ->where('is_approved', true)
+        $query = Company::query()->where('is_approved', true);
+
+        if (!$request->user() || $request->user()->role->name !== 'super_admin') {
+            $query->where('is_active', true);
+        }
+
+        $companies = $query
             ->with('supervisors')
             ->orderBy('name')
             ->get([
@@ -41,6 +45,7 @@ class CompanyController extends Controller
                 'contact_person',
                 'contact_email',
                 'contact_phone',
+                'is_active',
                 'is_approved',
             ]);
 
@@ -353,6 +358,23 @@ class CompanyController extends Controller
         }
 
         return response()->json(['message' => 'Student removed from the company successfully.']);
+    }
+
+    /**
+     * Superadmin toggles a company's is_active status (activate / deactivate).
+     */
+    public function toggleActive(Company $company): JsonResponse
+    {
+        $company->update(['is_active' => !$company->is_active]);
+
+        return response()->json([
+            'data' => $company->fresh()->only([
+                'id',
+                'name',
+                'is_active',
+                'is_approved',
+            ]),
+        ]);
     }
 
     /**

@@ -607,7 +607,7 @@ class InternController extends Controller
             }
 
             $effectiveTimeIn = $approvedOjtSchedule?->time_in ?? $companySchedule?->time_in;
-
+            
             if ($effectiveTimeIn) {
                 $scheduledTimeInToday = Carbon::parse($now->format('Y-m-d') . ' ' . $effectiveTimeIn);
                 
@@ -615,6 +615,23 @@ class InternController extends Controller
                 if ($now->copy()->addMinutes(20)->lessThan($scheduledTimeInToday)) {
                     return response()->json([
                         'message' => 'You can only punch in 20 minutes before your scheduled time in (' . Carbon::parse($effectiveTimeIn)->format('g:i A') . ').'
+                    ], 422);
+                }
+            }
+
+            $effectiveTimeOut = $approvedOjtSchedule?->time_out ?? $companySchedule?->time_out;
+
+            if ($effectiveTimeOut) {
+                $scheduledTimeOutToday = Carbon::parse(
+                    $now->format('Y-m-d') . ' ' . $effectiveTimeOut,
+                    $now->timezone
+                );
+
+                if ($now->greaterThanOrEqualTo($scheduledTimeOutToday)) {
+                    return response()->json([
+                        'message' => 'Your scheduled shift has already ended (' .
+                            Carbon::parse($effectiveTimeOut)->format('g:i A') .
+                            '). You can no longer punch in today.',
                     ], 422);
                 }
             }
@@ -697,7 +714,9 @@ class InternController extends Controller
                 'longitude_out'    => $longitude,
                 'duration_minutes' => $netDurationMinutes,
                 'face_match_score' => $faceMatchScore,
-                'task_note'        => $request->input('task_note'),
+                'task_note'        => $request->filled('task_note')
+                                    ? $request->input('task_note')
+                                    : $openLog->task_note,
             ]);
 
             // --- AUTO-DEACTIVATE COMPANY PLACEMENT ON OJT COMPLETION ---
@@ -735,8 +754,6 @@ class InternController extends Controller
                 ]);
             }
     }
-
-
 
     // -------------------------------------------------------------------------
     // Profile
@@ -1117,7 +1134,7 @@ class InternController extends Controller
             return response()->json(['message' => 'Time log not found.'], 404);
         }
 
-        if ($request->has('note')) {
+        if ($request->filled('note')) {
             $timeLog->update(['task_note' => $request->input('note')]);
         }
 

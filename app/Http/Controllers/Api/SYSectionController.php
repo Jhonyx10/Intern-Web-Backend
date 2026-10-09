@@ -22,6 +22,7 @@ class SYSectionController extends Controller
                 'sections.courseMajor',
                 'sections.coordinator',
                 'sections.students',
+                'evaluationTemplates:id,title'
             ])
             ->orderByDesc('is_active')
             ->orderByDesc('start_date')
@@ -33,6 +34,7 @@ class SYSectionController extends Controller
                     'start_date' => $sy->start_date?->toDateString(),
                     'end_date'   => $sy->end_date?->toDateString(),
                     'is_active'  => $sy->is_active,
+                    'is_evaluation_enabled' => $sy->is_evaluation_enabled,
                     'sections'   => $sy->sections->map(fn ($s) => [
                         'id'           => $s->id,
                         'name'         => $s->name,
@@ -45,11 +47,57 @@ class SYSectionController extends Controller
                             : null,
                         'students_count' => $s->students->count(),
                     ]),
+                    'evaluation_templates' => $sy->evaluationTemplates->map(fn ($t) => [
+                        'id' => $t->id,
+                        'title' => $t->title,
+                    ]),
                 ];
             });
 
         return response()->json($schoolYears);
     }
+
+    public function currentSchoolYear(): JsonResponse
+    {
+        $schoolYear = SchoolYear::with([
+                'sections.course',
+                'sections.courseMajor',
+                'sections.coordinator',
+                'sections.students',
+                'evaluationTemplates:id,title'
+            ])
+            ->where('is_active', true)
+            ->first();
+
+        if (! $schoolYear) {
+            return response()->json(['message' => 'No active school year found.'], 404);
+        }
+
+        return response()->json([
+            'id'         => $schoolYear->id,
+            'name'       => $schoolYear->name,
+            'semester'   => $schoolYear->semester,
+            'start_date' => $schoolYear->start_date?->toDateString(),
+            'end_date'   => $schoolYear->end_date?->toDateString(),
+            'is_active'  => $schoolYear->is_active,
+            'is_evaluation_enabled' => $schoolYear->is_evaluation_enabled,
+            'sections'   => $schoolYear->sections->map(fn ($s) => [
+                'id'             => $s->id,
+                'name'           => $s->name,
+                'code'           => $s->code,
+                'course_id'      => $s->course_id,
+                'course'         => $s->course ? ['id' => $s->course->id, 'name' => $s->course->name, 'code' => $s->course->code] : null,
+                'course_major'   => $s->courseMajor ? ['id' => $s->courseMajor->id, 'name' => $s->courseMajor->name] : null,
+                'coordinator'    => $s->coordinator ? ['id' => $s->coordinator->id, 'name' => $s->coordinator->name] : null,
+                'students_count' => $s->students->count(),
+            ]),
+            'evaluation_templates' => $schoolYear->evaluationTemplates->map(fn ($t) => [
+                'id' => $t->id,
+                'title' => $t->title,
+            ]),
+        ]);
+    }
+
 
     public function storeSchoolYear(Request $request)
     {
@@ -60,6 +108,9 @@ class SYSectionController extends Controller
             'start_date' => ['nullable', 'date'],
             'end_date'   => ['nullable', 'date', 'after_or_equal:start_date'],
             'is_active'  => ['sometimes', 'boolean'],
+            'is_evaluation_enabled' => ['sometimes', 'boolean'],
+            'evaluation_template_ids' => ['nullable', 'array'],
+            'evaluation_template_ids.*' => ['integer', 'exists:evaluation_templates,id'],
         ]);
 
         // If the new SY is active, deactivate all others for the same course scope
@@ -68,6 +119,12 @@ class SYSectionController extends Controller
         }
 
         $schoolYear = SchoolYear::create($validated);
+
+        if (isset($validated['evaluation_template_ids'])) {
+            $schoolYear->evaluationTemplates()->sync($validated['evaluation_template_ids']);
+        }
+
+        $schoolYear->load('evaluationTemplates:id,title');
 
         return response()->json($schoolYear, 201);
     }
@@ -79,6 +136,9 @@ class SYSectionController extends Controller
             'start_date' => ['nullable', 'date'],
             'end_date'   => ['nullable', 'date', 'after_or_equal:start_date'],
             'is_active'  => ['sometimes', 'boolean'],
+            'is_evaluation_enabled' => ['sometimes', 'boolean'],
+            'evaluation_template_ids' => ['nullable', 'array'],
+            'evaluation_template_ids.*' => ['integer', 'exists:evaluation_templates,id'],
         ]);
 
         if (!empty($validated['is_active'])) {
@@ -88,6 +148,12 @@ class SYSectionController extends Controller
         }
 
         $schoolYear->update($validated);
+
+        if (array_key_exists('evaluation_template_ids', $validated)) {
+            $schoolYear->evaluationTemplates()->sync($validated['evaluation_template_ids'] ?? []);
+        }
+
+        $schoolYear->load('evaluationTemplates:id,title');
 
         return response()->json($schoolYear);
     }

@@ -12,6 +12,7 @@ class EvaluationTemplate extends Model
     use BelongsToCourse;
 
     protected $fillable = ['title', 'description', 'is_active', 'created_by_user_id'];
+    protected $appends = ['is_used', 'used_in_school_years'];
 
     public function courses(): BelongsToMany
     {
@@ -21,6 +22,16 @@ class EvaluationTemplate extends Model
     public function items()
     {
         return $this->hasMany(EvaluationTemplateItem::class);
+    }
+
+    public function evaluations()
+    {
+        return $this->hasMany(Evaluation::class);
+    }
+
+    public function schoolYears(): BelongsToMany
+    {
+        return $this->belongsToMany(SchoolYear::class, 'school_year_evaluation_template');
     }
 
     public function creator()
@@ -36,5 +47,21 @@ class EvaluationTemplate extends Model
         $builder->whereHas('courses', function (Builder $query) use ($courseId) {
             $query->where('courses.id', $courseId);
         });
+    }
+
+    public function getIsUsedAttribute(): bool
+    {
+        if ($this->relationLoaded('evaluations') && $this->relationLoaded('schoolYears')) {
+            return $this->evaluations->isNotEmpty() || $this->schoolYears->isNotEmpty();
+        }
+        return $this->evaluations()->exists() || $this->schoolYears()->exists();
+    }
+
+    public function getUsedInSchoolYearsAttribute(): array
+    {
+        if ($this->relationLoaded('schoolYears')) {
+            return $this->schoolYears->pluck('name')->toArray();
+        }
+        return $this->schoolYears()->pluck('name')->toArray();
     }
 }

@@ -28,13 +28,24 @@ class OjtEvaluationController extends Controller
 
     public function index()
     {
-       $templates = EvaluationTemplate::with([
+        $user = auth()->user();
+        $isSuperAdmin = $user && $user->role && in_array($user->role->name, ['superadmin', 'super_admin']);
+
+        $query = EvaluationTemplate::with([
             'creator:id,name',
-            'courses:id,code,name'
+            'courses:id,code,name',
+            'evaluations:id,evaluation_template_id',
+            'schoolYears:id,name'
         ])
-        ->withCount('items')
-        ->latest()
-        ->get();
+        ->withCount('items');
+
+        if (!$isSuperAdmin) {
+            $query->whereHas('schoolYears', function ($q) {
+                $q->where('is_active', true);
+            });
+        }
+
+        $templates = $query->latest()->get();
 
         return response()->json($templates);
     }
@@ -88,6 +99,13 @@ class OjtEvaluationController extends Controller
             'template_id' => 'required|integer',
             'course_id' => 'required|integer',
         ]);
+
+        $activeSchoolYear = \App\Models\SchoolYear::where('is_active', true)->first();
+        if ($activeSchoolYear && !$activeSchoolYear->is_evaluation_enabled) {
+            return response()->json([
+                'message' => 'Evaluations are currently disabled for the active school year.',
+            ], 403);
+        }
 
         $templateId = $request->input('template_id');
         $courseId = $request->input('course_id');
@@ -208,7 +226,12 @@ class OjtEvaluationController extends Controller
 
     public function showEvaluation($id)
     {
-        $evaluation = EvaluationTemplate::with(['items', 'creator'])->findOrFail($id);
+        $evaluation = EvaluationTemplate::with([
+            'items', 
+            'creator', 
+            'evaluations:id,evaluation_template_id',
+            'schoolYears:id,name'
+        ])->findOrFail($id);
 
         return response()->json($evaluation);
     }

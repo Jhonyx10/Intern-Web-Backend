@@ -19,10 +19,10 @@ class DocumentsController extends Controller
 
     public function fetchStudentDocuments($id)
     {
-        $documents = StudentDocument::with(['documentType','documentRequirement','reviewedBy'])
+        $documents = StudentDocument::with(['documentRequirement', 'reviewedBy'])
                                     ->where('student_id', $id)
                                     ->get();
-        
+
         return response()->json([
             'message' => 'success',
             $documents
@@ -36,8 +36,7 @@ class DocumentsController extends Controller
         $query = StudentDocument::with([
             'student.section.course',
             'student.user',
-            'documentType',
-            'documentRequirement.documentType',
+            'documentRequirement',
             'reviewedBy'
         ]);
 
@@ -70,9 +69,6 @@ class DocumentsController extends Controller
                 })
                 ->orWhereHas('documentRequirement', function ($rq) use ($search) {
                     $rq->where('title', 'like', "%{$search}%");
-                })
-                ->orWhereHas('documentRequirement.documentType', function ($tq) use ($search) {
-                    $tq->where('name', 'like', "%{$search}%");
                 })
                 ->orWhereHas('student.section.course', function ($cq) use ($search) {
                     $cq->where('name', 'like', "%{$search}%")
@@ -110,12 +106,10 @@ class DocumentsController extends Controller
         ]);
     }
 
-      // GET /document-requirements
-   public function index(Request $request)
+    // GET /document-requirements
+    public function index(Request $request)
     {
-        $documents = $this->documentService->listRequirements(
-            $request->integer('document_type_id') ?: null
-        );
+        $documents = $this->documentService->listRequirements();
 
         return response()->json($documents);
     }
@@ -124,11 +118,11 @@ class DocumentsController extends Controller
     public function storeRequirement(Request $request)
     {
         $validated = $request->validate([
-            'document_type_id' => ['nullable', 'integer', 'exists:document_types,id'],
             'title' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'accepted_file_types' => ['nullable', 'string'],
             'is_active' => ['nullable', 'boolean'],
+            'recurrence' => ['nullable', Rule::in(['none', 'daily', 'weekly'])],
         ]);
 
         $validated['created_by_user_id'] = $request->user()->id;
@@ -136,29 +130,6 @@ class DocumentsController extends Controller
         $requirement = $this->documentService->createRequirement($validated);
 
         return response()->json($requirement, 201);
-    }
-
-    // GET /document-types
-    public function indexTypes()
-    {
-        return response()->json(
-            \App\Models\DocumentType::query()->get()
-        );
-    }
-
-    // POST /document-types
-    public function storeDocumentType(Request $request)
-    {
-        $validated = $request->validate([
-            'code' => ['required', 'string', 'max:50', 'unique:document_types,code'],
-            'name' => ['required', 'string', 'max:255'],
-            'is_required' => ['required', 'boolean'],
-            'recurrence' => ['nullable', Rule::in(['none', 'daily', 'weekly'])],
-        ]);
-
-        $documentType = $this->documentService->createDocumentType($validated);
-
-        return response()->json($documentType, 201);
     }
 
     // GET /courses/{course}/document-requirements

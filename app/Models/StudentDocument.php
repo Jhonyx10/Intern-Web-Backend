@@ -47,14 +47,6 @@ class StudentDocument extends Model
     }
 
     /**
-     * @return BelongsTo<DocumentType, $this>
-     */
-    public function documentType(): BelongsTo
-    {
-        return $this->belongsTo(DocumentType::class);
-    }
-
-    /**
      * @return BelongsTo<DocumentRequirement, $this>
      */
     public function documentRequirement(): BelongsTo
