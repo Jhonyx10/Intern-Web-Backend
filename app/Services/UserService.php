@@ -130,6 +130,9 @@ class UserService
 
         public function createCoordinator($data)
         {
+            $sectionId = $data['section_id'] ?? null;
+            unset($data['section_id']);
+
             $role = Role::where('name', 'Coordinator')->orWhere('name', 'coordinator')->first();
             if ($role) {
                 $data['role_id'] = $role->id;
@@ -158,10 +161,20 @@ class UserService
 
             $user = User::create($data);
 
+            $sectionName = null;
+            if ($sectionId) {
+                $section = \App\Models\Section::find($sectionId);
+                if ($section) {
+                    $section->update(['coordinator_user_id' => $user->id]);
+                    $sectionName = $section->name . ($section->code ? " ({$section->code})" : "");
+                }
+            }
+
             $user->notify(new AccountEmailNotification(
                 email: $user->email,
                 password: $plainPassword,
                 loginUrl: url('/login'),
+                sectionName: $sectionName,
             ));
 
             return $user;

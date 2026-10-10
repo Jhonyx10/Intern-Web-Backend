@@ -47,6 +47,24 @@ class OjtEvaluationController extends Controller
 
         $templates = $query->latest()->get();
 
+        if (\App\Support\DeanPortalScope::isPortalUser($user)) {
+            $scopedStudentIds = \App\Support\DeanPortalScope::studentsQuery($user)->pluck('id');
+            $templates->transform(function ($t) use ($scopedStudentIds) {
+                $t->submitted_count = $t->evaluations()
+                    ->where('status', 'submitted')
+                    ->whereIn('student_id', $scopedStudentIds)
+                    ->count();
+                return $t;
+            });
+        } else {
+            $templates->transform(function ($t) {
+                $t->submitted_count = $t->evaluations()
+                    ->where('status', 'submitted')
+                    ->count();
+                return $t;
+            });
+        }
+
         return response()->json($templates);
     }
 
@@ -234,6 +252,64 @@ class OjtEvaluationController extends Controller
         ])->findOrFail($id);
 
         return response()->json($evaluation);
+    }
+
+    /**
+     * Return all evaluations submitted by supervisors for a given template.
+     * Used by the EvaluationSubmissionsPage on the admin/dean side.
+     */
+    public function templateSubmissions(Request $request, $id): JsonResponse
+    {
+        // Verify the template exists
+        EvaluationTemplate::findOrFail($id);
+
+        $user = $request->user();
+
+        $query = Evaluation::with([
+                'template.items',
+                'student:id,student_number,first_name,middle_name,last_name,section_id',
+                'student.section:id,name,course_id',
+                'student.section.course:id,code',
+                'student.section.schoolYear:id,name',
+                'supervisor:id,user_id,company_id',
+                'supervisor.user:id,name',
+                'supervisor.company:id,name',
+            ])
+            ->where('evaluation_template_id', $id)
+            ->where('status', 'submitted');
+
+        if (\App\Support\DeanPortalScope::isPortalUser($user)) {
+            $scopedStudentIds = \App\Support\DeanPortalScope::studentsQuery($user)->pluck('id');
+            $query->whereIn('student_id', $scopedStudentIds);
+        }
+
+        $evaluations = $query->latest('submitted_at')->get();
+
+        $result = $evaluations->map(function (Evaluation $ev) {
+            $student = $ev->student;
+            $section = $student?->section;
+            $course  = $section?->course;
+            $sy      = $section?->schoolYear;
+
+            return [
+                'id'             => $ev->id,
+                'computed_score' => $ev->computed_score,
+                'submitted_at'   => $ev->submitted_at,
+                'responses'      => $ev->responses,
+                'items'          => $ev->template?->items,
+                'student'        => $student ? [
+                    'name'           => trim(collect([$student->first_name, $student->middle_name, $student->last_name])->filter()->implode(' ')),
+                    'student_number' => $student->student_number,
+                ] : null,
+                'evaluator'    => $ev->supervisor?->user?->name,
+                'company_name' => $ev->supervisor?->company?->name,
+                'course_code'  => $course?->code,
+                'section_code' => $section?->name,
+                'school_year'  => $sy?->name,
+            ];
+        });
+
+        return response()->json($result);
     }
 
     public function myEvaluations(Request $request, EvaluationService $service)

@@ -34,6 +34,11 @@ class CoordinatorController extends Controller
                 'integer',
                 Rule::exists(Course::class, 'id'),
             ],
+            'section_id' => [
+                'nullable',
+                'integer',
+                Rule::exists(\App\Models\Section::class, 'id'),
+            ],
         ]);
 
         $coordinatorRole = Role::where('name', 'coordinator')->firstOrFail();

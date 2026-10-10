@@ -15,6 +15,7 @@ class AccountEmailNotification extends Notification implements ShouldQueue
         public string $email,
         public string $password,
         public string $loginUrl,
+        public ?string $sectionName = null,
     ) {
         //
     }
@@ -26,12 +27,18 @@ class AccountEmailNotification extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
-        return (new MailMessage)
+        $mail = (new MailMessage)
             ->subject('Your Account Has Been Created')
             ->line('An account has been created for you.')
             ->line('Here are your login credentials:')
             ->line('**Email:** ' . $this->email)
-            ->line('**Temporary Password:** ' . $this->password)
+            ->line('**Temporary Password:** ' . $this->password);
+
+        if ($this->sectionName) {
+            $mail->line('**Assigned Section:** ' . $this->sectionName);
+        }
+
+        return $mail
             ->action('Log In', $this->loginUrl)
             ->line('For your security, please log in and change your password as soon as possible.');
     }

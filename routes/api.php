@@ -99,6 +99,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/evaluation-templates', [OjtEvaluationController::class, 'index']);
     Route::post('/evaluation-templates', [OjtEvaluationController::class, 'store']);
     Route::put('/evaluation-templates/{id}', [OjtEvaluationController::class, 'update']);
+    Route::get('/evaluation-templates/{id}/submissions', [OjtEvaluationController::class, 'templateSubmissions']);
     Route::get('/show/evaluation/{id}', [OjtEvaluationController::class, 'showEvaluation']);
     Route::post('/evaluations/bulk-assign', [OjtEvaluationController::class, 'bulkAssign']);
     Route::post('/evaluations/{evaluation}/submit', [OjtEvaluationController::class, 'submit']);
@@ -122,6 +123,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::put('/school-years/{schoolYear}/sections/{section}', [SYSectionController::class, 'updateSection']);
     Route::delete('/school-years/{schoolYear}/sections/{section}', [SYSectionController::class, 'destroySection']);
     Route::get('/geofence-events', [GeofenceEventController::class, 'forCourse']);
+    Route::get('/attendance-monitoring', [\App\Http\Controllers\Api\AttendanceMonitoringController::class, 'index']);
 
     // Supervisor portal
     Route::get('/supervisor/profile', [SupervisorController::class, 'profile']);

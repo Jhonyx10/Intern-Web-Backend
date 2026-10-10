@@ -43,6 +43,6 @@ class Evaluation extends Model
 
     public function supervisor(): BelongsTo
     {
-        return $this->belongsTo(Supervisor::class);
+        return $this->belongsTo(Supervisor::class, 'evaluator_id');
     }
 }
