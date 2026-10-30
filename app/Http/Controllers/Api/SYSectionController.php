@@ -22,7 +22,8 @@ class SYSectionController extends Controller
                 'sections.courseMajor',
                 'sections.coordinator',
                 'sections.students',
-                'evaluationTemplates:id,title'
+                'evaluationTemplates:id,title',
+                'documentRequirements:id,title,recurrence'
             ])
             ->orderByDesc('is_active')
             ->orderByDesc('start_date')
@@ -51,6 +52,11 @@ class SYSectionController extends Controller
                         'id' => $t->id,
                         'title' => $t->title,
                     ]),
+                    'document_requirements' => $sy->documentRequirements->map(fn ($r) => [
+                        'id' => $r->id,
+                        'title' => $r->title,
+                        'recurrence' => $r->recurrence,
+                    ]),
                 ];
             });
 
@@ -64,7 +70,8 @@ class SYSectionController extends Controller
                 'sections.courseMajor',
                 'sections.coordinator',
                 'sections.students',
-                'evaluationTemplates:id,title'
+                'evaluationTemplates:id,title',
+                'documentRequirements:id,title,recurrence'
             ])
             ->where('is_active', true)
             ->first();
@@ -95,6 +102,11 @@ class SYSectionController extends Controller
                 'id' => $t->id,
                 'title' => $t->title,
             ]),
+            'document_requirements' => $schoolYear->documentRequirements->map(fn ($r) => [
+                'id' => $r->id,
+                'title' => $r->title,
+                'recurrence' => $r->recurrence,
+            ]),
         ]);
     }
 
@@ -111,6 +123,8 @@ class SYSectionController extends Controller
             'is_evaluation_enabled' => ['sometimes', 'boolean'],
             'evaluation_template_ids' => ['nullable', 'array'],
             'evaluation_template_ids.*' => ['integer', 'exists:evaluation_templates,id'],
+            'document_requirement_ids' => ['nullable', 'array'],
+            'document_requirement_ids.*' => ['integer', 'exists:document_requirements,id'],
         ]);
 
         // If the new SY is active, deactivate all others for the same course scope
@@ -124,7 +138,11 @@ class SYSectionController extends Controller
             $schoolYear->evaluationTemplates()->sync($validated['evaluation_template_ids']);
         }
 
-        $schoolYear->load('evaluationTemplates:id,title');
+        if (isset($validated['document_requirement_ids'])) {
+            $schoolYear->documentRequirements()->sync($validated['document_requirement_ids']);
+        }
+
+        $schoolYear->load('evaluationTemplates:id,title', 'documentRequirements:id,title,recurrence');
 
         return response()->json($schoolYear, 201);
     }
@@ -139,6 +157,8 @@ class SYSectionController extends Controller
             'is_evaluation_enabled' => ['sometimes', 'boolean'],
             'evaluation_template_ids' => ['nullable', 'array'],
             'evaluation_template_ids.*' => ['integer', 'exists:evaluation_templates,id'],
+            'document_requirement_ids' => ['nullable', 'array'],
+            'document_requirement_ids.*' => ['integer', 'exists:document_requirements,id'],
         ]);
 
         if (!empty($validated['is_active'])) {
@@ -153,7 +173,11 @@ class SYSectionController extends Controller
             $schoolYear->evaluationTemplates()->sync($validated['evaluation_template_ids'] ?? []);
         }
 
-        $schoolYear->load('evaluationTemplates:id,title');
+        if (array_key_exists('document_requirement_ids', $validated)) {
+            $schoolYear->documentRequirements()->sync($validated['document_requirement_ids'] ?? []);
+        }
+
+        $schoolYear->load('evaluationTemplates:id,title', 'documentRequirements:id,title,recurrence');
 
         return response()->json($schoolYear);
     }

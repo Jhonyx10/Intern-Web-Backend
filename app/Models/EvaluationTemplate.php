@@ -51,10 +51,15 @@ class EvaluationTemplate extends Model
 
     public function getIsUsedAttribute(): bool
     {
-        if ($this->relationLoaded('evaluations') && $this->relationLoaded('schoolYears')) {
-            return $this->evaluations->isNotEmpty() || $this->schoolYears->isNotEmpty();
+        if ($this->is_active) {
+            return true;
         }
-        return $this->evaluations()->exists() || $this->schoolYears()->exists();
+
+        if ($this->relationLoaded('evaluations')) {
+            return $this->evaluations->isNotEmpty();
+        }
+
+        return $this->evaluations()->exists();
     }
 
     public function getUsedInSchoolYearsAttribute(): array

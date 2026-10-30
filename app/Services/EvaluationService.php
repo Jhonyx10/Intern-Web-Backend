@@ -24,7 +24,7 @@ class EvaluationService
                 'created_by_user_id' => $data['created_by_user_id'] ?? auth()->id(),
                 'title' => $data['title'],
                 'description' => $data['description'] ?? null,
-                'is_active' => $data['is_active'] ?? true,
+                'is_active' => $data['is_active'] ?? false,
             ]);
 
             // 2. Attach dynamic questionnaire fields
@@ -47,7 +47,13 @@ class EvaluationService
                 $template->courses()->sync($data['course_ids']);
             }
 
-            return $template->load(['items', 'courses']);
+            // 4. Automatically link to active school year(s) via junction table
+            $activeSchoolYearIds = \App\Models\SchoolYear::where('is_active', true)->pluck('id');
+            if ($activeSchoolYearIds->isNotEmpty()) {
+                $template->schoolYears()->sync($activeSchoolYearIds);
+            }
+
+            return $template->load(['items', 'courses', 'schoolYears']);
         });
     }
 

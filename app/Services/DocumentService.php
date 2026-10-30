@@ -24,14 +24,23 @@ class DocumentService
      */
     public function createRequirement(array $data): DocumentRequirement
     {
-        return DocumentRequirement::create([
+        $requirement = DocumentRequirement::create([
             'title' => $data['title'],
             'description' => $data['description'] ?? null,
             'accepted_file_types' => $data['accepted_file_types'] ?? DocumentRequirementFileType::PdfAndWord,
             'created_by_user_id' => $data['created_by_user_id'] ?? null,
             'is_active' => $data['is_active'] ?? true,
             'recurrence' => $data['recurrence'] ?? 'none',
+            'document_type' => $data['document_type'] ?? 'common',
         ]);
+
+        // Auto-link to active school year(s)
+        $activeSchoolYearIds = \App\Models\SchoolYear::where('is_active', true)->pluck('id');
+        if ($activeSchoolYearIds->isNotEmpty()) {
+            $requirement->schoolYears()->sync($activeSchoolYearIds);
+        }
+
+        return $requirement;
     }
 
     /**
@@ -42,10 +51,16 @@ class DocumentService
     public function listRequirements(?int $sectionId = null): Collection
     {
         return DocumentRequirement::query()
-            ->with(['createdBy'])
+            ->with(['createdBy', 'schoolYears:id,name'])
             ->when($sectionId, fn ($query) => $query->where('section_id', $sectionId))
             ->orderBy('created_at')
-            ->get();
+            ->get()
+            ->map(function ($req) {
+                $req->created_school_year = $req->schoolYears->sortBy('id')->first()?->name ?? 'N/A';
+                $req->anchored_school_years_count = $req->schoolYears->count();
+                $req->anchored_school_year_names = $req->schoolYears->pluck('name')->values()->toArray();
+                return $req;
+            });
     }
 
     /**
@@ -55,7 +70,7 @@ class DocumentService
      * @param  array<int>  $documentRequirementIds
      * @return Collection  the course's requirements after syncing
      */
-    public function syncCourseRequirements(int $courseId, array $documentRequirementIds, string $deadlineAt): Collection
+    public function syncCourseRequirements(int $courseId, array $documentRequirementIds, ?string $deadlineAt = null): Collection
     {
         $course = Course::findOrFail($courseId);
 

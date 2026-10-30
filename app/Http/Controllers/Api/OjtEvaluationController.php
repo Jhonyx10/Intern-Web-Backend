@@ -47,23 +47,25 @@ class OjtEvaluationController extends Controller
 
         $templates = $query->latest()->get();
 
-        if (\App\Support\DeanPortalScope::isPortalUser($user)) {
-            $scopedStudentIds = \App\Support\DeanPortalScope::studentsQuery($user)->pluck('id');
-            $templates->transform(function ($t) use ($scopedStudentIds) {
-                $t->submitted_count = $t->evaluations()
-                    ->where('status', 'submitted')
-                    ->whereIn('student_id', $scopedStudentIds)
-                    ->count();
-                return $t;
-            });
-        } else {
-            $templates->transform(function ($t) {
-                $t->submitted_count = $t->evaluations()
-                    ->where('status', 'submitted')
-                    ->count();
-                return $t;
-            });
-        }
+        $templates->transform(function ($t) use ($user) {
+            $scopedStudentIds = \App\Support\DeanPortalScope::isPortalUser($user)
+                ? \App\Support\DeanPortalScope::studentsQuery($user)->pluck('id')
+                : null;
+
+            $t->submitted_count = $t->evaluations()
+                ->where('status', 'submitted')
+                ->when($scopedStudentIds, fn($q) => $q->whereIn('student_id', $scopedStudentIds))
+                ->count();
+
+            // Created school year (oldest attached school year or current active fallback)
+            $oldestSy = $t->schoolYears->sortBy('id')->first();
+            $t->created_school_year = $oldestSy ? $oldestSy->name : 'N/A';
+
+            // Total count of school years this template has been anchored to
+            $t->anchored_school_years_count = $t->schoolYears->count();
+
+            return $t;
+        });
 
         return response()->json($templates);
     }
@@ -336,5 +338,93 @@ class OjtEvaluationController extends Controller
         abort_if(! $found, 404, 'Evaluation not found.');
 
         return response()->json(new EvaluationResource($found));
+    }
+
+    /**
+     * Centralised "Intern Evaluations" endpoint.
+     *
+     * - Supervisor  → evaluations for interns at their company
+     * - Dean        → evaluations for students in their course
+     * - Coordinator → evaluations for students in their sections
+     */
+    public function internEvaluations(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $role = $user->role?->name;
+
+        $query = Evaluation::with([
+            'template.items',
+            'student:id,student_number,first_name,middle_name,last_name,section_id',
+            'student.section:id,name,course_id',
+            'student.section.course:id,code',
+            'supervisor:id,user_id,company_id',
+            'supervisor.user:id,name',
+            'supervisor.company:id,name',
+        ]);
+
+        if ($role === 'supervisor') {
+            $supervisor = \App\Models\Supervisor::where('user_id', $user->id)
+                ->where('is_active', true)
+                ->first();
+
+            if (! $supervisor || ! $supervisor->company_id) {
+                return response()->json(['data' => []]);
+            }
+
+            // Students currently assigned to this supervisor's company
+            $studentIds = $supervisor->company
+                ->students()
+                ->wherePivot('status', 'active')
+                ->pluck('students.id');
+
+            $query->whereIn('student_id', $studentIds);
+        } elseif (\App\Support\DeanPortalScope::isPortalUser($user)) {
+            $studentIds = \App\Support\DeanPortalScope::studentsQuery($user)->pluck('id');
+            $query->whereIn('student_id', $studentIds);
+        } elseif ($role === 'coordinator') {
+            // Coordinator → students in their assigned sections
+            $sectionIds = \App\Models\Section::where('coordinator_user_id', $user->id)->pluck('id');
+            $studentIds = \App\Models\Student::whereIn('section_id', $sectionIds)->pluck('id');
+            $query->whereIn('student_id', $studentIds);
+        } else {
+            return response()->json(['data' => []], 403);
+        }
+
+        $evaluations = $query->latest('updated_at')->get();
+
+        $result = $evaluations->map(function (Evaluation $ev) {
+            $student = $ev->student;
+            $section = $student?->section;
+            $course  = $section?->course;
+
+            return [
+                'id'              => $ev->id,
+                'status'          => $ev->status,
+                'computed_score'  => $ev->computed_score,
+                'submitted_at'    => $ev->submitted_at,
+                'created_at'      => $ev->created_at,
+                'responses'       => $ev->responses,
+                'student'         => $student ? [
+                    'id'             => $student->id,
+                    'first_name'     => $student->first_name,
+                    'middle_name'    => $student->middle_name,
+                    'last_name'      => $student->last_name,
+                    'student_number' => $student->student_number,
+                ] : null,
+                'section_name'    => $section?->name,
+                'section_id'      => $section?->id,
+                'course_code'     => $course?->code,
+                'evaluator'       => $ev->supervisor?->user?->name,
+                'company_name'    => $ev->supervisor?->company?->name,
+                'template'        => $ev->template ? [
+                    'id'          => $ev->template->id,
+                    'title'       => $ev->template->title,
+                    'description' => $ev->template->description,
+                    'items'       => $ev->template->items,
+                ] : null,
+            ];
+        });
+
+        return response()->json(['data' => $result]);
     }
 }

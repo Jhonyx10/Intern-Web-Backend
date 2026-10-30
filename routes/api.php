@@ -103,10 +103,16 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/show/evaluation/{id}', [OjtEvaluationController::class, 'showEvaluation']);
     Route::post('/evaluations/bulk-assign', [OjtEvaluationController::class, 'bulkAssign']);
     Route::post('/evaluations/{evaluation}/submit', [OjtEvaluationController::class, 'submit']);
+    Route::get('/intern-evaluations', [OjtEvaluationController::class, 'internEvaluations']);
     
     // Notifications Endpoints
+    Route::get('/notifications', [NotificationController::class, 'index']);
     Route::get('/notifications/unread', [OjtEvaluationController::class, 'unreadNotifications']);
     Route::post('/notifications/mark-as-read', [OjtEvaluationController::class, 'markNotificationsAsRead']);
+    Route::post('/notifications/{id}/read', [NotificationController::class, 'markRead']);
+    Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
+    Route::delete('/notifications', [NotificationController::class, 'clear']);
+    Route::get('/intern-locations', [InternLocationController::class, 'index']);
 
     // School Years
     Route::get('/school-years/current', [SYSectionController::class, 'currentSchoolYear']);
@@ -177,7 +183,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('/time/logs/{timeLogId}/task-checker', [InternController::class, 'taskChecker']);
         //interns location alert tracker
         Route::post('/time/geofence-event', [GeofenceEventController::class, 'store']);
-        Route::post('/time/location', [InternLocationController::class, 'update']);
+        Route::post('/intern-location', [InternLocationController::class, 'update']);
 
         // Geofence Excursions
         Route::get('/excursions/pending', [GeofenceExcursionController::class, 'pending']);

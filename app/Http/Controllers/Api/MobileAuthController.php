@@ -228,7 +228,26 @@ class MobileAuthController extends Controller
             $embeddingList = $this->python->extractEmbedding($imageFile);
             $embedding = FaceEmbedding::normalize($embeddingList);
 
-            // Optional: Save original image for review (in storage/app/public/faces)
+            // Reject the enrollment if this face already belongs to another account.
+            $threshold = (float) config('services.face.match_threshold', 0.45);
+
+            $existingProfiles = StudentFaceProfile::query()
+                ->where('is_active', true)
+                ->whereNotNull('face_embedding')
+                ->where('student_id', '!=', $student->id) // allow re-enrolling your own face
+                ->get(['id', 'student_id', 'face_embedding']);
+
+            foreach ($existingProfiles as $profile) {
+                $distance = FaceMatcher::euclideanDistance($profile->face_embedding, $embedding);
+
+                if ($distance <= $threshold) {
+                    throw ValidationException::withMessages([
+                        'image' => ['This face ID is already enrolled to another account.'],
+                    ]);
+                }
+            }
+
+            // Only store the image after the duplicate check passes
             $referenceImagePath = $imageFile->store('faces', 'public');
 
             $faceProfile = StudentFaceProfile::updateOrCreate(
@@ -250,17 +269,15 @@ class MobileAuthController extends Controller
                 ],
             ]);
 
+        } catch (ValidationException $e) {
+            // Our own validation errors (duplicate face, bad embedding): pass through, no error log
+            throw $e;
         } catch (\Exception $e) {
             Log::error('Face extraction error: ' . $e->getMessage());
-            
-            // If the error was thrown by our own ValidationException, pass it through directly
-            if ($e instanceof ValidationException) {
-                throw $e;
-            }
 
             return response()->json([
                 'message' => 'An error occurred connecting to the face recognition service.',
-                'error' => config('app.debug') ? $e->getMessage() : null
+                'error' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }

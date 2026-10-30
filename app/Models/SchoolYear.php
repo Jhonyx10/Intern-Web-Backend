@@ -50,4 +50,10 @@ class SchoolYear extends Model
     {
         return $this->belongsToMany(EvaluationTemplate::class, 'school_year_evaluation_template');
     }
+
+    public function documentRequirements(): BelongsToMany
+    {
+        return $this->belongsToMany(DocumentRequirement::class, 'school_year_document_requirement')
+            ->withTimestamps();
+    }
 }

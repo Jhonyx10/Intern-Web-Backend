@@ -19,7 +19,7 @@ class DocumentsController extends Controller
 
     public function fetchStudentDocuments($id)
     {
-        $documents = StudentDocument::with(['documentRequirement', 'reviewedBy'])
+        $documents = StudentDocument::with(['student.section.course', 'student.section.schoolYear', 'documentRequirement', 'reviewedBy'])
                                     ->where('student_id', $id)
                                     ->get();
 
@@ -35,6 +35,7 @@ class DocumentsController extends Controller
 
         $query = StudentDocument::with([
             'student.section.course',
+            'student.section.schoolYear',
             'student.user',
             'documentRequirement',
             'reviewedBy'
@@ -55,6 +56,23 @@ class DocumentsController extends Controller
             if ($courseId) {
                 $query->whereHas('student.section', function ($q) use ($courseId) {
                     $q->where('course_id', $courseId);
+                });
+            }
+        }
+
+        // Filter by school year: specific ID, "all", or default to active school year
+        if ($request->filled('school_year_id')) {
+            $syId = $request->input('school_year_id');
+            if ($syId !== 'all') {
+                $query->whereHas('student.section', function ($q) use ($syId) {
+                    $q->where('school_year_id', (int) $syId);
+                });
+            }
+        } elseif (!$request->boolean('all_school_years')) {
+            $activeSY = \App\Models\SchoolYear::where('is_active', true)->first();
+            if ($activeSY) {
+                $query->whereHas('student.section', function ($q) use ($activeSY) {
+                    $q->where('school_year_id', $activeSY->id);
                 });
             }
         }
@@ -114,7 +132,6 @@ class DocumentsController extends Controller
         return response()->json($documents);
     }
 
-    // POST /document-requirements
     public function storeRequirement(Request $request)
     {
         $validated = $request->validate([
@@ -123,11 +140,23 @@ class DocumentsController extends Controller
             'accepted_file_types' => ['nullable', 'string'],
             'is_active' => ['nullable', 'boolean'],
             'recurrence' => ['nullable', Rule::in(['none', 'daily', 'weekly'])],
+            'document_type' => ['nullable', Rule::in(['common', 'departmental'])],
+            'course_ids' => ['nullable', 'array'],
+            'course_ids.*' => ['integer', 'exists:courses,id'],
+            'deadline_at' => ['nullable', 'date'],
         ]);
 
         $validated['created_by_user_id'] = $request->user()->id;
 
         $requirement = $this->documentService->createRequirement($validated);
+
+        if (!empty($validated['course_ids'])) {
+            $pivotData = [];
+            foreach ($validated['course_ids'] as $courseId) {
+                $pivotData[$courseId] = ['deadline_at' => $validated['deadline_at'] ?? null];
+            }
+            $requirement->courses()->sync($pivotData);
+        }
 
         return response()->json($requirement, 201);
     }
@@ -146,13 +175,13 @@ class DocumentsController extends Controller
         $validated = $request->validate([
             'document_requirement_ids' => ['present', 'array'],
             'document_requirement_ids.*' => ['integer'],
-            'deadline_at' => ['required', 'date'],
+            'deadline_at' => ['nullable', 'date'],
         ]);
 
         $requirements = $this->documentService->syncCourseRequirements(
             $course,
             $validated['document_requirement_ids'],
-            $validated['deadline_at']
+            $validated['deadline_at'] ?? null
         );
 
         return response()->json($requirements);

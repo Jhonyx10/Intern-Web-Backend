@@ -33,7 +33,13 @@ class StudentController extends Controller
         $defaultPerPage = $unassigned ? 50 : 5;
         $perPage = min(100, max(1, (int) $request->input('per_page', $defaultPerPage)));
 
-        $query = Student::with(['section']);
+        $query = Student::with([
+            'section.course',
+            'section.schoolYear',
+            'company',
+            'user',
+            'timeLogs',
+        ]);
 
         if ($unassigned) {
             $query->whereDoesntHave('companies', function ($q) {
@@ -46,8 +52,13 @@ class StudentController extends Controller
 
         $students = $query->paginate($perPage);
 
-        if ($unassigned) {
-            $students->getCollection()->transform(function ($student) {
+        $students->getCollection()->transform(function ($student) use ($unassigned) {
+            // Compute total completed hours from timeLogs (duration_minutes)
+            $totalMinutes = $student->timeLogs ? $student->timeLogs->sum('duration_minutes') : 0;
+            $student->hours_completed = round($totalMinutes / 60, 1);
+            $student->hours_required = $student->section->course->required_hours ?? 486;
+
+            if ($unassigned) {
                 $courseRequirements = $student->section->course->documentRequirements ?? collect();
                 $isReady = true;
 
@@ -72,9 +83,9 @@ class StudentController extends Controller
                 if ($student->section && $student->section->course) {
                     unset($student->section->course->documentRequirements);
                 }
-                return $student;
-            });
-        }
+            }
+            return $student;
+        });
 
         return response()->json(['data' => $students]);
     }
@@ -141,6 +152,7 @@ class StudentController extends Controller
     {
         $student = Student::with([
             'section.course',
+            'section.schoolYear',
             'section.courseMajor',
             'section.coordinator',
             'companies.schedules.creator',

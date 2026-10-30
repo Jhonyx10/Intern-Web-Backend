@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Support\DocumentRequirementFileType;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class DocumentRequirement extends Model
@@ -20,6 +21,7 @@ class DocumentRequirement extends Model
         'accepted_file_types',
         'is_active',
         'recurrence',
+        'document_type',
     ];
 
     /**
@@ -62,6 +64,12 @@ class DocumentRequirement extends Model
     {
         return $this->belongsToMany(Course::class)
             ->withPivot('deadline_at')
+            ->withTimestamps();
+    }
+
+    public function schoolYears(): BelongsToMany
+    {
+        return $this->belongsToMany(SchoolYear::class, 'school_year_document_requirement')
             ->withTimestamps();
     }
 }

@@ -59,26 +59,48 @@ class CompanyController extends Controller
      */
     public function show(Company $company): JsonResponse
     {
-        $company->load(['students', 'supervisors.user', 'buildings']);
+        $company->load(['students.section.schoolYear', 'supervisors.user', 'buildings']);
+
+        // Collect distinct school years from all assigned students
+        $schoolYears = $company->students
+            ->map(fn($student) => $student->section?->schoolYear)
+            ->filter()
+            ->unique('id')
+            ->values();
+
+        $activeSchoolYears = $company->students
+            ->where('is_active', true)
+            ->map(fn($student) => $student->section?->schoolYear)
+            ->filter()
+            ->unique('id')
+            ->pluck('name')
+            ->values();
+
+        $companyData = $company->only([
+            'id',
+            'name',
+            'address',
+            'latitude',
+            'longitude',
+            'geofence_radius_meters',
+            'geofence_enabled',
+            'geofence_polygon',
+            'contact_person',
+            'contact_email',
+            'contact_phone',
+            'is_active',
+            'is_approved',
+            'students',
+            'supervisors',
+            'buildings',
+        ]);
+
+        $companyData['school_years'] = $schoolYears;
+        $companyData['active_school_years'] = $activeSchoolYears;
+        $companyData['total_school_years_count'] = $schoolYears->count();
+
         return response()->json([
-            'data' => $company->only([
-                'id',
-                'name',
-                'address',
-                'latitude',
-                'longitude',
-                'geofence_radius_meters',
-                'geofence_enabled',
-                'geofence_polygon',
-                'contact_person',
-                'contact_email',
-                'contact_phone',
-                'is_active',
-                'is_approved',
-                'students',
-                'supervisors',
-                'buildings',
-            ]),
+            'data' => $companyData,
         ]);
     }
 
